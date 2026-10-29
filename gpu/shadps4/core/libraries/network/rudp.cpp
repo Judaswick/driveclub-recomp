@@ -52,7 +52,10 @@ enum Option : s32 {
     OptKeepaliveTimeout = 19,
 };
 
-enum PacketType : u8 { Syn = 1, SynAck = 2, Data = 3, Datagram = 4, Ack = 5, Ping = 6, Fin = 7 };
+// A reliable message longer than kSegment goes out as DataMore segments and a closing Data one (each with
+// its own sequence number), so no packet needs IP fragmentation, which VPN links (MTU 1280) may drop.
+enum PacketType : u8 { Syn = 1, SynAck = 2, Data = 3, Datagram = 4, Ack = 5, Ping = 6, Fin = 7, DataMore = 8 };
+constexpr u32 kSegment = 1100;
 
 #pragma pack(push, 1)
 struct Header {
@@ -80,8 +83,9 @@ struct Context {
     u32 next_send_seq{1};
     std::map<u32, Unacked> unacked;
     u32 next_recv_seq{1};
-    std::map<u32, std::vector<u8>> early; // reliable packets ahead of next_recv_seq
-    std::deque<std::vector<u8>> readable;
+    std::map<u32, std::pair<u8, std::vector<u8>>> early; // reliable packets ahead of next_recv_seq: type, payload
+    std::vector<u8> partial;                             // DataMore segments of the message being received
+    std::deque<std::vector<u8>> readable;                // a read shorter than the front leaves the rest there
     Clock::time_point last_rx{};
     Clock::time_point last_tx{};
     Clock::time_point initiated{};
@@ -123,6 +127,15 @@ void DeliverLocked(Context& c, const u8* data, size_t len) {
     c.bytes_received += len;
 }
 
+// A reliable packet in sequence: segments collect until the closing Data one completes the message.
+void InOrderLocked(Context& c, u8 type, const u8* data, size_t len) {
+    c.partial.insert(c.partial.end(), data, data + len);
+    if (type == Data) {
+        DeliverLocked(c, c.partial.data(), c.partial.size());
+        c.partial.clear();
+    }
+}
+
 void Receive(u32 from_addr, u16 from_port, const u8* data, size_t len) {
     if (len < sizeof(Header)) {
         return;
@@ -151,19 +164,20 @@ void Receive(u32 from_addr, u16 from_port, const u8* data, size_t len) {
             EstablishLocked(id, c);
             break;
         case Data:
+        case DataMore:
             EstablishLocked(id, c);
             SendLocked(c, Ack, h.seq);
             if (h.seq == c.next_recv_seq) {
-                DeliverLocked(c, payload, payload_len);
+                InOrderLocked(c, h.type, payload, payload_len);
                 ++c.next_recv_seq;
                 for (auto it = c.early.find(c.next_recv_seq); it != c.early.end();
                      it = c.early.find(c.next_recv_seq)) {
-                    DeliverLocked(c, it->second.data(), it->second.size());
+                    InOrderLocked(c, it->second.first, it->second.second.data(), it->second.second.size());
                     c.early.erase(it);
                     ++c.next_recv_seq;
                 }
             } else if (h.seq > c.next_recv_seq) {
-                c.early.emplace(h.seq, std::vector<u8>(payload, payload + payload_len));
+                c.early.emplace(h.seq, std::make_pair(h.type, std::vector<u8>(payload, payload + payload_len)));
             }
             break;
         case Datagram:
@@ -293,6 +307,7 @@ s32 PS4_SYSV_ABI sceRudpSetOption(s32 ctx_id, s32 option, const void* value, u32
     s32 v = 0;
     std::memcpy(&v, value, std::min<u32>(len, sizeof(v)));
     c->options[option] = v;
+    LOG_INFO(Lib_Net, "RUDP context {} option {} = {}", ctx_id, option, v);
     if (option == OptDeliveryCritical) {
         c->reliable = v != 0;
     }
@@ -388,11 +403,17 @@ s32 PS4_SYSV_ABI sceRudpWrite(s32 ctx_id, const void* data, u32 len, u8 flags) {
         return ORBIS_RUDP_ERROR_MSG_TOO_LARGE;
     }
     if (c->reliable) {
-        const u32 seq = c->next_send_seq++;
-        Unacked u;
-        SendLocked(*c, Data, seq, data, len, &u.packet);
-        u.sent = Clock::now();
-        c->unacked.emplace(seq, std::move(u));
+        const u8* bytes = static_cast<const u8*>(data);
+        u32 offset = 0;
+        do {
+            const u32 n = std::min(kSegment, len - offset);
+            const u32 seq = c->next_send_seq++;
+            Unacked u;
+            SendLocked(*c, offset + n < len ? DataMore : Data, seq, bytes + offset, n, &u.packet);
+            u.sent = Clock::now();
+            c->unacked.emplace(seq, std::move(u));
+            offset += n;
+        } while (offset < len);
     } else {
         SendLocked(*c, Datagram, 0, data, len);
     }
@@ -409,11 +430,31 @@ s32 PS4_SYSV_ABI sceRudpRead(s32 ctx_id, void* data, u32 len, u8 flags, void* in
     if (c->readable.empty()) {
         return c->state == Closed ? ORBIS_RUDP_ERROR_CONN_TIMEOUT : ORBIS_RUDP_ERROR_WOULDBLOCK;
     }
-    std::vector<u8> msg = std::move(c->readable.front());
-    c->readable.pop_front();
-    const u32 n = std::min<u32>(len, static_cast<u32>(msg.size()));
-    if (data && n) {
-        std::memcpy(data, msg.data(), n);
+    // Messages come out one per read; a stream context (OptStream) fills the buffer across them. A read
+    // shorter than the message takes its start and leaves the rest for the next read.
+    const bool stream = c->options.count(OptStream) && c->options[OptStream];
+    u32 n = 0;
+    while (n < len && !c->readable.empty()) {
+        std::vector<u8>& msg = c->readable.front();
+        const u32 take = std::min<u32>(len - n, static_cast<u32>(msg.size()));
+        if (data && take) {
+            std::memcpy(static_cast<u8*>(data) + n, msg.data(), take);
+        }
+        n += take;
+        if (take < msg.size()) {
+            static int logged = 0;
+            if (logged < 20) {
+                ++logged;
+                LOG_INFO(Lib_Net, "RUDP context {}: read of {} bytes takes part of a {}-byte message", ctx_id,
+                         len, msg.size());
+            }
+            msg.erase(msg.begin(), msg.begin() + take);
+            break;
+        }
+        c->readable.pop_front();
+        if (!stream) {
+            break;
+        }
     }
     return static_cast<s32>(n);
 }
@@ -423,6 +464,13 @@ s32 PS4_SYSV_ABI sceRudpGetSizeReadable(s32 ctx_id) {
     Context* c = Find(ctx_id);
     if (!c) {
         return ORBIS_RUDP_ERROR_INVALID_CONTEXT_ID;
+    }
+    if (c->options.count(OptStream) && c->options[OptStream]) {
+        size_t total = 0;
+        for (const auto& msg : c->readable) {
+            total += msg.size();
+        }
+        return static_cast<s32>(total);
     }
     return c->readable.empty() ? 0 : static_cast<s32>(c->readable.front().size());
 }
