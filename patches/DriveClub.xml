@@ -49,6 +49,18 @@
             <Line Type="bytes" Address="0x01951ae0" Value="4883c4405b415c415d415e415f5dc3"/>
         </PatchList>
     </Metadata>
+    <Metadata Title="Driveclub"
+              Always="true"
+              Name="Private lobby: drift mode"
+              Note="The private lobby's Mode setting cycles Race and Time Trial and skips Drift (mode 1) on purpose (0x387e0b: a new mode of 1 moves on once more), although the lobby's settings and labels handle it (drift duration 5 to 15 minutes). The check now compares with a mode that does not exist, so Drift can be picked."
+              Author="Judaswick"
+              PatchVer="1.0"
+              AppVer="01.28"
+              AppElf="eboot.bin">
+        <PatchList>
+            <Line Type="bytes" Address="0x00787e0b" Value="83f963"/>
+        </PatchList>
+    </Metadata>
     <Metadata Title="Driveclub" 
               isEnabled="true"
               Name="60 FPS with deltatime" 
