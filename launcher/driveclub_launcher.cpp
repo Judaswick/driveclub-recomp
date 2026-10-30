@@ -1814,12 +1814,13 @@ void BuildModel() {
                      L"Touches up the picture after upscaling. Needs a GeForce RTX card and NVIDIA's own nvngx_dlssnr.dll in the runtime folder: this release does not include it."});
   g_cards.push_back({L"PLAYER", {pname, g_lang}, 0, kTabGameplay});
   g_cards.push_back({L"ONLINE", {g_online_row, g_online_ip_row, g_online_host_row}, 0, kTabGameplay,
-                     L"Private multiplayer with friends. Everyone needs the same version of the game."});
+                     L"Private multiplayer with friends. Everyone needs the same version of the game. In the game, L3+R3 (keyboard: Left Ctrl+V) opens the online menu: bots, AI difficulty, XP boost, championships."});
   g_cards.push_back({L"CONTENT", {unlock, unlock_all}, 0, kTabGameplay});
   g_cards.push_back({L"SAVES", {g_profile_row, g_save_backup_row, g_save_restore_row}, 0, kTabGameplay});
   g_cards.push_back({L"STARTUP AND OVERLAYS", {showfps, showpedals, overlays, autoplay, updatecheck, g_skip_intro_row, g_telemetry, g_triggers}, 0, kTabGameplay});
   g_cards.push_back({L"VIEW AND KEYS", {g_fov, lock_horizon, g_camera_shake}, 0, kTabDriving,
                      L"Keys while playing:\n"
+                     L"L3+R3 (Left Ctrl+V)   online menu\n"
                      L"F2   pedal inputs\n"
                      L"F4   picture: brightness, contrast or gamma\n"
                      L"F5 / F6   narrower / wider view\n"
@@ -2288,6 +2289,10 @@ bool SaveTextAtomically(const std::wstring& path,const std::string& text) {
     if(out) { out<<text; out.flush(); }
     if(!out) { DeleteFileW(temp.c_str()); g_settings_error=L"Could not write settings; the previous file was retained."; return false; }
   }
+  // A read-only file (copied over from an older folder or a read-only medium) cannot be replaced: clear the flag.
+  const DWORD attributes=GetFileAttributesW(path.c_str());
+  if(attributes!=INVALID_FILE_ATTRIBUTES && (attributes&FILE_ATTRIBUTE_READONLY))
+    SetFileAttributesW(path.c_str(),attributes&~FILE_ATTRIBUTE_READONLY);
   if(!MoveFileExW(temp.c_str(),path.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)) {
     DeleteFileW(temp.c_str());g_settings_error=L"Could not replace settings; the previous file was retained.";return false;
   }
