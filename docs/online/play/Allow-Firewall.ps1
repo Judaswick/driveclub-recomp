@@ -1,6 +1,7 @@
 # Lets other players reach this PC for DriveClub online (Windows Firewall, inbound).
 # Double-click Allow-Firewall.bat; Windows asks once for admin rights.
-# The game (UDP, peer-to-peer races) always; the server (TCP 8080) when driveclubsrv.exe is found.
+# The game (UDP, peer-to-peer races) always; the server (TCP 8080, and UDP 8080 for the launcher's server list) when
+# driveclubsrv.exe is found.
 # Only from the home network and the VPNs people play over (Tailscale 100.64.0.0/10, Hamachi 25.0.0.0/8,
 # Radmin 26.0.0.0/8): nobody on the internet reaches the game or the server. Add more with -Allow.
 param([string]$Root = $PSScriptRoot, [string[]]$Allow = @())
@@ -27,7 +28,10 @@ if (Test-Path $cfg) {
 if (Test-Path (Join-Path $serverDir 'driveclubsrv.exe')) {
     New-NetFirewallRule -DisplayName 'DriveClub Online (server TCP 8080)' -Direction Inbound -Action Allow `
         -Protocol TCP -LocalPort 8080 -Profile Any -RemoteAddress $remote | Out-Null
-    Write-Host 'Server allowed: TCP 8080'
+    # the launcher's server list searches the networks with a datagram to UDP 8080
+    New-NetFirewallRule -DisplayName 'DriveClub Online (server search UDP 8080)' -Direction Inbound -Action Allow `
+        -Protocol UDP -LocalPort 8080 -Profile Any -RemoteAddress $remote | Out-Null
+    Write-Host 'Server allowed: TCP 8080, UDP 8080 (server search)'
 }
 
 # Rules Windows made when asked "allow access?" for these programs let in every address and cannot be narrowed:
