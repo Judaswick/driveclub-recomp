@@ -58,6 +58,8 @@ void ModItem(const std::string& id, int kind, float x, float y, float w, float h
              const std::string& text);
 void ModItemClear(const std::string& id);
 
+/// Any thread: a lobby championship's standings after a race, as the co-op server answers them (dccoop/result).
+void Standings(const std::string& answer);
 /// A trophy banner: grade 0 platinum, 1 gold, 2 silver, 3 bronze.
 void Trophy(int id, int grade, const std::string& title, const std::string& description);
 
