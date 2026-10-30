@@ -91,6 +91,8 @@ void StartBotSync();
 void SetBotPeers(const std::string& names);
 
 extern "C" void bbgpu_overlay_note(const char* text_utf8); // the port's overlay (gpu/shim/bbgpu.cpp)
+extern "C" void bbgpu_overlay_standings(const char* answer_utf8);
+extern "C" int runtime_lobby_result(int* place, int* field, int* racing); // src/runtime_objectives.c
 extern "C" uintptr_t runtime_image_base;
 extern "C" void runtime_championship_set_race(const unsigned char* block, int autostart); // src/runtime_championship.c
 extern "C" void runtime_bots_set(int count, int host);          // src/runtime_championship.c
@@ -249,11 +251,33 @@ void StartBotSync() {
 void StartChampionshipPoll() {
     std::thread([] {
         long long applied = -1; // seq of the settings last written
+        int reported = 0;       // the last lobby race whose place went to the server
+        int standings_again = -1; // the tick to ask for the standings once more
         int ticks = 0;
         for (;; ++ticks) {
             std::this_thread::sleep_for(std::chrono::milliseconds(250));
             if (!runtime_image_base) {
                 continue;
+            }
+            // A lobby race finished: its place goes to the championship of the lobby's host, and the
+            // standings come back (nothing when no championship is on).
+            // The others report theirs at about the same time: asked again (place 0: only the standings) a
+            // few seconds later.
+            int place = 0, field = 0, racing = 0;
+            const int finished = runtime_lobby_result(&place, &field, &racing);
+            if (finished != reported || ticks == standings_again) {
+                const bool report = finished != reported;
+                reported = finished;
+                standings_again = report ? ticks + 24 : -1;
+                httplib::Client cli(CoopServerUrl());
+                cli.set_connection_timeout(3);
+                cli.set_read_timeout(3);
+                const auto res = cli.Get(("/dccoop/result/" + LocalNpName() + "?place=" +
+                                          std::to_string(report ? place : 0) + "&field=" +
+                                          std::to_string(report ? field : 0)).c_str());
+                if (res && res->status == 200 && !res->body.empty() && !racing) {
+                    bbgpu_overlay_standings(res->body.c_str());
+                }
             }
             const int command = NextCommand();
             if (!command && ticks % 8) {

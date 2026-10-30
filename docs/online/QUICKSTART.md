@@ -55,6 +55,9 @@ right, select with Cross, close with Circle.
 | Start / stop the championship | from race 2 on each race starts by itself |
 | Random championship | 3 random tracks, times of day and weather, starts at once |
 
+After each championship race every player sees the standings for 20 s (bottom right): points as in Formula 1
+(25, 18, 15, 12, 10, 8, 6, 4, 2, 1) and each driver's places so far; after the last race, who won.
+
 ## If something goes wrong
 
 - **"Server not reachable":** is the VPN on? Has the host started the game with Host a session? Is the IP right? Did the

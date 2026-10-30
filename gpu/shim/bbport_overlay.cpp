@@ -19,6 +19,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <mutex>
+#include <sstream>
 
 #include <SDL3/SDL.h>
 #include "bbport_settings.h"
@@ -286,6 +287,48 @@ void ObjectivesPanel() {
         std::snprintf(line, sizeof line, "OBJECTIVES  %d / 3", met);
         const float size = 22.0f * s;
         draw->AddText(exit_heading, size, ImVec2(left, (627.0f - 15.0f) * s - size - 8.0f * s), white, line);
+    }
+}
+
+// A lobby championship's standings after a race (BbOverlay::Standings, from the co-op server), on the right for
+// STANDINGS_SECONDS from the last update: guarded by imgui_mutex.
+constexpr int STANDINGS_SECONDS = 20;
+struct StandingsRow { std::string place, name, points, races; };
+std::vector<StandingsRow> standings_rows;
+std::string standings_title;
+std::chrono::steady_clock::time_point standings_until{};
+std::atomic<bool> standings_active{false};
+
+void StandingsPanel(float scale) {
+    if (std::chrono::steady_clock::now() > standings_until) {
+        standings_active = false;
+        return;
+    }
+    ImGuiIO& io = ImGui::GetIO();
+    auto* draw = ImGui::GetForegroundDrawList();
+    const ImU32 red = IM_COL32(237, 43, 56, 255), white = IM_COL32(242, 242, 244, 255),
+                grey = IM_COL32(155, 155, 160, 255), gold = IM_COL32(236, 190, 70, 255);
+    const float row_h = 40 * scale, w = 560 * scale, h = 92 * scale + row_h * standings_rows.size() + 20 * scale;
+    // bottom right, above the results screen's button bar: the results list fills the top from the left
+    const ImVec2 pos(io.DisplaySize.x - w - 60 * scale, io.DisplaySize.y - h - 150 * scale);
+    draw->AddRectFilled(pos, ImVec2(pos.x + w, pos.y + h), IM_COL32(16, 16, 16, 235));
+    draw->AddRectFilled(pos, ImVec2(pos.x + 3 * scale, pos.y + h), red);
+    draw->AddText(exit_heading, 26 * scale, ImVec2(pos.x + 28 * scale, pos.y + 18 * scale), white, "CHAMPIONSHIP");
+    draw->AddText(exit_body, 17 * scale, ImVec2(pos.x + 30 * scale, pos.y + 52 * scale), grey, standings_title.c_str());
+    for (size_t i = 0; i < standings_rows.size(); ++i) {
+        const StandingsRow& r = standings_rows[i];
+        const ImVec2 a(pos.x + 20 * scale, pos.y + 84 * scale + i * row_h), b(pos.x + w - 20 * scale, a.y + row_h - 6 * scale);
+        draw->AddRectFilled(a, b, IM_COL32(32, 32, 36, 255));
+        const float cy = (a.y + b.y) * 0.5f, size = 19 * scale;
+        const ImU32 lead = i == 0 ? gold : white;
+        draw->AddText(exit_heading, size, ImVec2(a.x + 12 * scale, cy - size * 0.55f), lead, r.place.c_str());
+        draw->AddText(exit_body, size, ImVec2(a.x + 52 * scale, cy - size * 0.55f), lead, r.name.c_str());
+        const std::string races = "(" + r.races + ")";
+        const ImVec2 rs = exit_body->CalcTextSizeA(15 * scale, FLT_MAX, 0, races.c_str());
+        draw->AddText(exit_body, 15 * scale, ImVec2(b.x - 110 * scale - rs.x, cy - rs.y * 0.5f), grey, races.c_str());
+        const std::string pts = r.points + " pts";
+        const ImVec2 ps = exit_heading->CalcTextSizeA(size, FLT_MAX, 0, pts.c_str());
+        draw->AddText(exit_heading, size, ImVec2(b.x - 12 * scale - ps.x, cy - size * 0.55f), lead, pts.c_str());
     }
 }
 
@@ -1200,7 +1243,7 @@ bool HandleEvent(const SDL_Event& event) {
 bool Visible() {
     return initialized && (runtime_exit_captures() || menu_open || online_open || text_entry_active || note_active || trophy_active || BbSettings::Get().show_fps ||
                            BbSettings::Get().show_pedals || picture_row >= 0 || NitroArcShown() ||
-                           ObjectivesShown());
+                           ObjectivesShown() || standings_active);
 }
 
 void Trophy(int id, int grade, const std::string& title, const std::string& description) {
@@ -1208,6 +1251,32 @@ void Trophy(int id, int grade, const std::string& title, const std::string& desc
     std::scoped_lock lock{imgui_mutex};
     trophy_queue.push_back({grade, title, description, std::move(icon)});
     trophy_active = true;
+}
+
+void Standings(const std::string& answer) {
+    std::vector<StandingsRow> rows;
+    std::string driven, final_race;
+    std::istringstream lines(answer);
+    for (std::string line; std::getline(lines, line);) {
+        if (!line.compare(0, 6, "races=")) { driven = line.substr(6); continue; }
+        if (!line.compare(0, 6, "final=")) { final_race = line.substr(6); continue; }
+        std::istringstream fields(line);
+        StandingsRow r;
+        if (std::getline(fields, r.place, '\t') && std::getline(fields, r.name, '\t') &&
+            std::getline(fields, r.points, '\t') && std::getline(fields, r.races)) {
+            rows.push_back(r);
+        }
+    }
+    if (rows.empty()) return;
+    const size_t slash = driven.find('/');
+    std::string title = final_race == "1" ? "Final standings  -  " + rows.front().name + " wins!"
+                                          : "Standings after race " + driven.substr(0, slash) + " of " +
+                                                (slash == std::string::npos ? "?" : driven.substr(slash + 1));
+    std::scoped_lock lock{imgui_mutex};
+    standings_rows = std::move(rows);
+    standings_title = title;
+    standings_until = std::chrono::steady_clock::now() + std::chrono::seconds(STANDINGS_SECONDS);
+    standings_active = true;
 }
 
 void Note(const std::string& text) {
@@ -1355,6 +1424,9 @@ void Render(vk::CommandBuffer cmdbuf, vk::ImageView view, vk::Extent2D extent) {
     }
     NitroArc();
     ObjectivesPanel();
+    if (standings_active) {
+        StandingsPanel(scale);
+    }
     if (online_open) {
         OnlineMenu(scale);
     }

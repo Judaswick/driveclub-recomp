@@ -37,6 +37,8 @@ enum { GOAL_FINISH, GOAL_SPEED, GOAL_LEAD, GOALS };
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 static char track[64];
 static int pending;   /* a lobby race's config was built: its goals start with its first position */
+static int goals_on;  /* the goals are shown (the switch at the race's start) */
+static int result_seq, result_place, result_field; /* the last finished race, for the standings */
 static int active;    /* the race runs */
 static uint64_t last_hud_us, ended_us, started_us;
 static int position, field;
@@ -98,7 +100,8 @@ static void ratio_store(const char *name, float ratio) {
 void runtime_objectives_race(const char *name) {
     pthread_mutex_lock(&lock);
     snprintf(track, sizeof track, "%s", name ? name : "");
-    pending = runtime_objectives_enabled();
+    pending = 1; /* every lobby race is followed: its place goes to the championship standings */
+    goals_on = runtime_objectives_enabled();
     active = 0;
     ended_us = 0;
     pthread_mutex_unlock(&lock);
@@ -140,6 +143,9 @@ static void finish(uint64_t t) {
     active = 0;
     ended_us = t;
     met[GOAL_FINISH] = position >= 1 && position <= finish_place;
+    ++result_seq;
+    result_place = position;
+    result_field = field;
     for (int i = 0; i < GOALS; ++i) failed[i] = !met[i];
     if (!lead_goal) failed[GOAL_LEAD] = 0;
     float speed, top;
@@ -203,13 +209,25 @@ void runtime_objectives_frame(void) {
     pthread_mutex_unlock(&lock);
 }
 
+/* The last finished lobby race's place and field; the number of races finished so far (0: none yet). A pause long
+ * enough to end a race here sends a place too early; the real end sends it again and the server keeps the last. */
+int runtime_lobby_result(int *place, int *field, int *racing) {
+    pthread_mutex_lock(&lock);
+    const int seq = result_seq;
+    *place = result_place;
+    *field = result_field;
+    *racing = active;
+    pthread_mutex_unlock(&lock);
+    return seq;
+}
+
 /* For the overlay: the goals' lines, whether each is met (1), missed (-1) or open (0), and a progress text each.
  * 0 when nothing is to be shown (no lobby race, or its summary is over). Shown also says the race is on: the HUD is
  * there. */
 int runtime_objectives_view(char text[3][64], char progress[3][32], int state[3], int *over) {
     const uint64_t t = now_us();
     pthread_mutex_lock(&lock);
-    const int show = (active && t - last_hud_us < 500000) || (ended_us && t - ended_us < SUMMARY_US);
+    const int show = goals_on && ((active && t - last_hud_us < 500000) || (ended_us && t - ended_us < SUMMARY_US));
     if (show) {
         if (finish_place == 1) snprintf(text[0], 64, "Win the race");
         else snprintf(text[0], 64, "Finish in the top %d", finish_place);
