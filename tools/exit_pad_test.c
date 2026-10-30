@@ -13,6 +13,7 @@ int bbgpu_overlay_captures_input(void) { return test_overlay_captures; }
 int runtime_memory_is_mapped(uintptr_t a, uint64_t s) { (void)a; (void)s; return 0; }
 void bbgpu_reflex_pre_input_sample(void) {}
 void bbgpu_reflex_on_input_sampled(void) {}
+int bbgpu_online_menu_pad(uint32_t buttons) { (void)buttons; return 0; }
 void bbgpu_overlay_note(const char *s) { (void)s; }
 void bbgpu_mouse_stick_capture(int c) { (void)c; }
 static uint32_t test_confirm=0x4000;
