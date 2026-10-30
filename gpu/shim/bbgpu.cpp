@@ -515,6 +515,9 @@ extern "C" void bbgpu_overlay_trophy(int id, int grade, const char* title_utf8, 
 extern "C" void bbgpu_overlay_note(const char* text_utf8) {
     BbOverlay::Note(text_utf8 ? text_utf8 : "");
 }
+extern "C" void bbgpu_overlay_standings(const char* answer_utf8) {
+    BbOverlay::Standings(answer_utf8 ? answer_utf8 : "");
+}
 
 extern "C" int bbgpu_text_input_begin(const char* initial, const char* prompt) {
     if (!g_window) return 0;

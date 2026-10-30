@@ -106,6 +106,7 @@ void runtime_objectives_race(const char *track);
 ABI void runtime_objectives_position(int place, int total);
 ABI void runtime_objectives_hud(void);
 void runtime_objectives_frame(void);
+int runtime_lobby_result(int *place, int *field, int *racing);
 int runtime_objectives_view(char text[3][64], char progress[3][32], int state[3], int *over);
 /* Bots in private lobby races: count and whether this game hosts (np_handler.cpp), and the entrant hooks (probe.c). */
 void runtime_bots_set(int count, int host);

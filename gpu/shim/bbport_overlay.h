@@ -51,6 +51,8 @@ void SetTextEntry(bool active, const std::string& prompt, const std::string& tex
 
 /// Any thread: a short line shown at the top of the screen for a few seconds (a hotkey's new value).
 void Note(const std::string& text);
+/// Any thread: a lobby championship's standings after a race, as the co-op server answers them (dccoop/result).
+void Standings(const std::string& answer);
 /// A trophy banner: grade 0 platinum, 1 gold, 2 silver, 3 bronze.
 void Trophy(int id, int grade, const std::string& title, const std::string& description);
 
