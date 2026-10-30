@@ -106,6 +106,7 @@ void runtime_championship_frame(void);
 int runtime_nitro_enabled(void); /* 0 off, 1 on, 2 unlimited */
 void runtime_nitro_step(int dir);
 int runtime_nitro_state(float *charge, int *firing, int *unlimited);
+ABI float runtime_nitro_charge_hook(void *self);
 void runtime_nitro_frame(uint32_t buttons);
 /* Bots in private lobby races: count and whether this game hosts (np_handler.cpp), and the entrant hooks (probe.c). */
 void runtime_bots_set(int count, int host);

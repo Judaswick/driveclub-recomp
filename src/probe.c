@@ -937,6 +937,19 @@ static void patch_crowd_get(unsigned char *image, uint64_t size) {
     memcpy(site + 1, &rel, 4);
     printf("BB_CROWD_EXACT: crowd heights getter call patched\n");
 }
+/* Replaces a whole guest function with a host one: movabs rax, hook; jmp rax over its first 12 bytes, which must be
+ * the expected ones. */
+static void patch_entry(unsigned char *image, uint64_t size, uint64_t at, const unsigned char *expect, size_t n,
+                        uintptr_t hook, const char *name) {
+    if (size < at + 16 || n < 12 || !hook) return;
+    unsigned char *f = image + at;
+    if (memcmp(f, expect, n)) {
+        printf("%s: function %#" PRIx64 " is not the expected one; not patched\n", name, at);
+        return;
+    }
+    f[0] = 0x48; f[1] = 0xb8; memcpy(f + 2, &hook, 8); /* movabs rax, hook */
+    f[10] = 0xff; f[11] = 0xe0;                         /* jmp rax */
+}
 /* A guest call (e8 rel32 at site_at, to target) goes to a host hook through a near thunk instead; the hook has the
  * callee's arguments and calls the callee itself. */
 static void patch_call(unsigned char *image, uint64_t size, uint64_t site_at, uint64_t target, uintptr_t hook,
@@ -1688,6 +1701,10 @@ int main(int argc, char **argv) {
     if (!cpu_only) patch_cloud_get(image, size);
     if (!cpu_only) patch_query_get(image, size);
     if (!cpu_only) patch_crowd_get(image, size);
+    /* Nitro (runtime_nitro.c): the vehicle state's KERSCharge getter, so the game's boost gauge shows our charge. */
+    static const unsigned char kers_charge_fn[] = {0x55, 0x48, 0x89, 0xe5, 0x48, 0x8b, 0x07, 0xff, 0x90, 0x50, 0x03, 0x00, 0x00};
+    patch_entry(image, size, 0xc4c660, kers_charge_fn, sizeof kers_charge_fn, (uintptr_t)runtime_nitro_charge_hook,
+                "Nitro gauge");
     /* Bots in private lobby races (runtime_championship.c): the lobby's entrant calls, then the AI after them. */
     patch_call(image, size, 0x37d3f7, 0x3ff0, (uintptr_t)runtime_bots_entrant_hook, "Bots");
     patch_call(image, size, 0x37d44e, 0x3da0, (uintptr_t)runtime_bots_done_hook, "Bots");
