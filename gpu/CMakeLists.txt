@@ -37,7 +37,7 @@ elseif (BB_PGO STREQUAL "use")
     # Clang: code without recorded counts is optimized normally, and functions changed since the profile
     # (or built differently for it, bbgpu_init) are compiled without it.
     add_compile_options(-fprofile-use=${BB_PGO_DIR} -Wno-profile-instr-missing
-                        -Wno-profile-instr-out-of-date -Wno-profile-instr-unprofiled)
+                        -Wno-profile-instr-out-of-date -Wno-profile-instr-unprofiled -Wno-backend-plugin)
 endif()
 
 find_package(Vulkan REQUIRED)
