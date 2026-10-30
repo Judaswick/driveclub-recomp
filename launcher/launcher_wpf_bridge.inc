@@ -67,7 +67,7 @@ Json UiState(const std::wstring& error=L"") {
   for(size_t i=0;i<g_c.size();++i){
     const auto& c=g_c[i];Json options=Json::array();int selected=c.sel;
     const auto [hint,details]=SplitHint(NeuralRowLocked(c) ? NeuralMissingHint() : int(i)==g_camera_patch_row && !CameraPatchAvailable() ? L"This runtime does not expose the temporary camera/replay workaround. It may be unnecessary if native timing is already corrected." : int(i)==g_motion_blur ? MotionBlurHint(c.sel) : std::wstring(c.hint),c.more);
-    std::string kind=c.kind==Kind::Toggle?"Toggle":c.kind==Kind::Action?"Action":c.kind==Kind::Slider?"Slider":c.kind==Kind::Button?"Button":(c.patches[0]=="@name"||c.patches[0]=="@onhost")?"Text":"Choice";
+    std::string kind=c.kind==Kind::Toggle?"Toggle":c.kind==Kind::Action?"Action":c.kind==Kind::Slider?"Slider":c.kind==Kind::Button?"Button":(c.patches[0]=="@name"||c.patches[0]=="@onhost"||c.patches[0]=="@srvname"||c.patches[0]=="@liston")?"Text":"Choice";
     if(int(i)==g_lang){for(auto* n:kLangName)options.push_back(Narrow(n));selected=g_lang_id;}
     else if(int(i)==g_btrack){for(const auto& x:kBenchTracks)options.push_back(Narrow(std::wstring(x.name)+L" ("+x.group+L")"));selected=g_bench_track;}
     else if(int(i)==g_bcar){for(const auto& x:kBenchCars)options.push_back(Narrow(x.name));selected=g_bench_car;}
@@ -75,7 +75,7 @@ Json UiState(const std::wstring& error=L"") {
     const bool listed=std::any_of(g_cards.begin(),g_cards.end(),[&](const Card& card){return std::find(card.ctls.begin(),card.ctls.end(),int(i))!=card.ctls.end();});
     controls.push_back({{"Id",i},{"Label",Narrow(NeuralRowLocked(c) ? std::wstring(c.label)+L" (needs nvngx_dlssnr.dll)" : std::wstring(c.label))},{"Hint",Narrow(hint)},{"Kind",kind},{"Tag",c.patches[0]},
       {"Minimum",c.min},{"Maximum",c.max},{"Unit",Narrow(c.unit)},{"Hidden",!listed || RowHidden(c)},{"Enabled",!BlurRowLocked(c) && !NeuralRowLocked(c) && (int(i)!=g_camera_patch_row || CameraPatchAvailable())},
-      {"Options",options},{"Selected",selected},{"Text",c.patches[0]=="@name"?Narrow(g_name):c.patches[0]=="@onhost"?Narrow(g_online_host):""},
+      {"Options",options},{"Selected",selected},{"Text",c.patches[0]=="@name"?Narrow(g_name):c.patches[0]=="@onhost"?Narrow(g_online_host):c.patches[0]=="@srvname"?Narrow(g_server_name):c.patches[0]=="@liston"?Narrow(g_list_on):""},
       {"Details",Narrow(details)}});
   }
   // The native model owns category/card membership, reset scopes and Driving subpages.
@@ -109,6 +109,9 @@ void ImportUiState(const Json& input) {
       const std::string host=item.value("Text",Narrow(g_online_host));
       if(host.size()>15||std::any_of(host.begin(),host.end(),[](unsigned char ch){return !(ch=='.'||(ch>='0'&&ch<='9'));}))throw std::runtime_error("Host address must be an IPv4 address");
       g_online_host=Widen(host);c.items[0]=g_online_host.empty()?L"(not set)":g_online_host;
+    }else if(c.patches[0]=="@srvname"||c.patches[0]=="@liston"){
+      std::wstring& value=c.patches[0]=="@srvname"?g_server_name:g_list_on;
+      value=CleanServerText(c.patches[0],Widen(item.value("Text",Narrow(value))));ShowServerTexts();
     }else if(id==g_servers_row){
       // the list the UI showed is the last search's (data\ui\servers.json, loaded at start)
       if(selected<0||selected>int(g_found.size()))throw std::runtime_error("Invalid server");
@@ -146,7 +149,7 @@ int RunWpfBridge(int argc,wchar_t** argv) {
           ids.insert(ids.end(),card.ctls.begin(),card.ctls.end());
         for(int id:ids){
           auto& c=g_c[id];
-          if(c.kind==Kind::Action || c.kind==Kind::Button || c.patches[0]=="@name" || c.patches[0]=="@onhost" || id==g_lang)continue;
+          if(c.kind==Kind::Action || c.kind==Kind::Button || c.patches[0]=="@name" || c.patches[0]=="@onhost" || c.patches[0]=="@srvname" || c.patches[0]=="@liston" || id==g_lang)continue;
           c.sel=id==g_camera_patch_row ? (FrameModeNeedsCameraPatch()?1:0) : c.def;
           if(id==g_btrack)g_bench_track=0;
           if(id==g_bcar)g_bench_car=kBenchDefaultCar;
