@@ -1266,7 +1266,7 @@ static ABI int32_t pad_read_state(int32_t handle, PadData *data) {
     game_options_apply();   /* the game's thread, outside the lock: the setters tell the rest of the game */
     camera_fov_apply();
     runtime_championship_frame();
-    runtime_nitro_frame();
+    runtime_nitro_frame(data->buttons);
     return 0;
 }
 /* Buffered read: the port samples once per call, so one entry is returned. */

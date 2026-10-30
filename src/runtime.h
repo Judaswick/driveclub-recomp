@@ -103,9 +103,10 @@ void runtime_benchmark_note_mods(const char *dir);
 void runtime_championship_set_race(const unsigned char *block, int autostart);
 void runtime_championship_frame(void);
 /* Nitro (the game's boost) for every car (runtime_nitro.c): on/off, and the per-pad-read upkeep. */
-int runtime_nitro_enabled(void);
-void runtime_nitro_toggle(void);
-void runtime_nitro_frame(void);
+int runtime_nitro_enabled(void); /* 0 off, 1 on, 2 unlimited */
+void runtime_nitro_step(int dir);
+int runtime_nitro_state(float *charge, int *firing, int *unlimited);
+void runtime_nitro_frame(uint32_t buttons);
 /* Bots in private lobby races: count and whether this game hosts (np_handler.cpp), and the entrant hooks (probe.c). */
 void runtime_bots_set(int count, int host);
 int runtime_bots_count(void);
