@@ -391,6 +391,10 @@ int g_telemetry = -1, g_triggers = -1, telemetry_saved = 0, triggers_saved = 0; 
 bool skip_intro_saved = false;  // "skip_intro=" in launcher.ini
 int g_online_row = -1, g_online_host_row = -1, g_online_ip_row = -1;  // "Online play" (Off, Host, Join, Public) and "Host address" rows
 int g_servers_row = -1;           // "Servers": the server list of Join (server_browser.cpp)
+int g_srvname_row = -1, g_liston_row = -1;  // Host: "Server name" and "List my server on"
+std::wstring g_server_name;       // the hosted server's name in the server list, "online_server_name=" in launcher.ini
+std::wstring g_list_on;           // servers that list the hosted one (comma-separated), "online_list_on=" in launcher.ini
+std::string g_edit_tag;           // the text row being typed in (native window)
 std::wstring g_online_recent;     // servers joined lately, comma-separated, from "online_recent=" in launcher.ini
 std::wstring g_online_lists;      // servers that keep a list of others, comma-separated, from "online_lists=" (hand-written)
 std::vector<FoundServer> g_found; // the "Servers" row's servers, after its first entry (search again)
@@ -632,6 +636,25 @@ void ShowServers(bool search) {
   }
 }
 
+// Host: the "Server name" and "List my server on" rows show their values.
+void ShowServerTexts() {
+  if (g_srvname_row >= 0) g_c[g_srvname_row].items[0] = g_server_name.empty() ? L"(your computer's name)" : g_server_name;
+  if (g_liston_row >= 0) g_c[g_liston_row].items[0] = g_list_on.empty() ? L"(nowhere)" : g_list_on;
+}
+
+// A typed server name (40 printable characters) or list (addresses, ports, commas), cleaned.
+std::wstring CleanServerText(const std::string& tag, const std::wstring& text) {
+  std::wstring out;
+  for (wchar_t ch : text) {
+    if (tag == "@srvname" ? (ch >= 32 && ch < 127 && ch != L'"' && ch != L'\\')
+                          : (iswalnum(ch) && ch < 128) || ch == L'.' || ch == L':' || ch == L',' || ch == L'-')
+      out += ch;
+  }
+  while (!out.empty() && out.back() == L' ') out.pop_back();
+  while (!out.empty() && out.front() == L' ') out.erase(0, 1);
+  return out.substr(0, tag == "@srvname" ? 40 : 120);
+}
+
 // The "Servers" row's choice: a server is joined, the first entry searches again.
 void ChooseServer(int sel) {
   if (sel <= 0 || sel > int(g_found.size())) return;
@@ -651,6 +674,8 @@ bool RowHidden(const Ctl& c) {
   if (g_online_host_row >= 0 && &c == &g_c[g_online_host_row]) return g_online_row >= 0 && g_c[g_online_row].sel != 2;
   if (g_online_ip_row >= 0 && &c == &g_c[g_online_ip_row]) return g_online_row >= 0 && g_c[g_online_row].sel != 1;
   if (g_servers_row >= 0 && &c == &g_c[g_servers_row]) return g_online_row >= 0 && g_c[g_online_row].sel != 2;
+  if ((g_srvname_row >= 0 && &c == &g_c[g_srvname_row]) || (g_liston_row >= 0 && &c == &g_c[g_liston_row]))
+    return g_online_row >= 0 && g_c[g_online_row].sel != 1;
   if ((g_hdr_paper >= 0 && &c == &g_c[g_hdr_paper]) || (g_hdr_peak >= 0 && &c == &g_c[g_hdr_peak]))
     return g_hdr >= 0 && g_c[g_hdr].sel == 0;
   for (int p : g_picture)  // the SDR picture; HDR has its own brightness
@@ -1410,6 +1435,12 @@ void BuildModel() {
                       L"and every server listed on those (a host can list its server on a friend's with server.list_on in its server\\config.json). "
                       L"Choose one to join it; choose the first entry to search again.",
                       {L"Search for servers"}, {"@servers"}, 0);
+  g_srvname_row = seg(L"Server name", L"What your friends see in their server list. Empty: your computer's name. Click it to type one.",
+                      {g_server_name.empty() ? std::wstring(L"(your computer's name)") : g_server_name}, {"@srvname"}, 0);
+  g_liston_row = seg(L"List my server on",
+                     L"The IP address of a friend's server (or several, separated by commas): your server appears in its server list, and so in the "
+                     L"list of everyone who finds it. Best a server that is on most of the time. Click it to type one.",
+                     {g_list_on.empty() ? std::wstring(L"(nowhere)") : g_list_on}, {"@liston"}, 0);
   g_mirror = seg(L"Mirror and reflection updates",
                  L"How often the mirrors, reflections and rain on the glass are redrawn.\n"
                  L"\x2022 Live: every frame, as on PS4. This second, smaller scene is about a quarter of all the game's drawing.\n"
@@ -1838,7 +1869,7 @@ void BuildModel() {
   g_cards.push_back({L"NEURAL RENDERING", {g_neural, g_nr_sub[0], g_nr_sub[1], g_nr_sub[2], g_nr_sub[3], g_nr_sub[4]}, 0, kTabDetail,
                      L"Touches up the picture after upscaling. Needs a GeForce RTX card and NVIDIA's own nvngx_dlssnr.dll in the runtime folder: this release does not include it."});
   g_cards.push_back({L"PLAYER", {pname, g_lang}, 0, kTabGameplay});
-  g_cards.push_back({L"ONLINE", {g_online_row, g_online_ip_row, g_servers_row, g_online_host_row}, 0, kTabGameplay,
+  g_cards.push_back({L"ONLINE", {g_online_row, g_online_ip_row, g_srvname_row, g_liston_row, g_servers_row, g_online_host_row}, 0, kTabGameplay,
                      L"Private multiplayer with friends. Everyone needs the same version of the game. In the game, L3+R3 (keyboard: Left Ctrl+V) opens the online menu: bots, AI difficulty, XP boost, championships."});
   g_cards.push_back({L"CONTENT", {unlock, unlock_all}, 0, kTabGameplay});
   g_cards.push_back({L"SAVES", {g_profile_row, g_save_backup_row, g_save_restore_row}, 0, kTabGameplay});
@@ -1972,6 +2003,8 @@ void LoadSettings() {
     if (line.rfind("online_host=", 0) == 0) g_online_host = Widen(line.substr(12));
     if (line.rfind("online_recent=", 0) == 0) g_online_recent = Widen(line.substr(14));
     if (line.rfind("online_lists=", 0) == 0) g_online_lists = Widen(line.substr(13));
+    if (line.rfind("online_server_name=", 0) == 0) g_server_name = Widen(line.substr(19));
+    if (line.rfind("online_list_on=", 0) == 0) g_list_on = Widen(line.substr(15));
     if (line.rfind("mirror=", 0) == 0) mirror_saved = atoi(line.substr(7).c_str());
     if (line.rfind("aniso=", 0) == 0) aniso_saved = atoi(line.substr(6).c_str());
     if (line.rfind("language=", 0) == 0) lang_saved = atoi(line.substr(9).c_str());
@@ -2058,14 +2091,13 @@ void LoadSettings() {
   }
   ShowBenchChoices();
   for (auto& c : g_c) if (c.patches[0] == "@name") c.items[0] = g_name;
-  if (g_online_row >= 0 && online_saved >= 0 && online_saved < 3) g_c[g_online_row].sel = online_saved;
-  if (g_profile_row >= 0 && profile_saved >= 0 && profile_saved < 4) g_c[g_profile_row].sel = profile_saved;
   if (g_skip_intro_row >= 0) g_c[g_skip_intro_row].sel = skip_intro_saved ? 1 : 0;
   if (g_telemetry >= 0) g_c[g_telemetry].sel = telemetry_saved == 1 ? 1 : 0;
   if (g_triggers >= 0) g_c[g_triggers].sel = triggers_saved == 1 ? 1 : 0;
   g_playtime_text = PlayTimeText();
   if (g_online_host_row >= 0) g_c[g_online_host_row].items[0] = g_online_host.empty() ? L"(not set)" : g_online_host;
   ShowServers(false);
+  ShowServerTexts();
   CheckFolders();
   const auto lines = ReadLines(SelectionPath());
   const bool has_selection = !lines.empty() || Exists(SelectionPath());
@@ -2136,6 +2168,8 @@ void LoadSettings() {
     }
   }
   // After the loop above, which resets every row that has no patch of its own.
+  if (g_online_row >= 0 && online_saved >= 0 && online_saved < int(g_c[g_online_row].items.size())) g_c[g_online_row].sel = online_saved;
+  if (g_profile_row >= 0 && profile_saved >= 0 && profile_saved < 4) g_c[g_profile_row].sel = profile_saved;
   if (g_mirror >= 0 && mirror_saved == 1) g_c[g_mirror].sel = mirror_saved;
   if (g_aniso >= 0 && aniso_saved >= 1 && aniso_saved <= 5) g_c[g_aniso].sel = aniso_saved;
   if (g_lang >= 0) {
@@ -2342,7 +2376,7 @@ bool SaveSettings() {
       g_online_recent = recent;
     }
     ini << "update=" << Narrow(g_folder[0].path) << "\r\nbase=" << Narrow(g_folder[1].path) << "\r\nfps=" << (fps_on ? 1 : 0)
-        << "\r\nfast=" << (fast_on ? 1 : 0) << "\r\nunlocked=" << ((g_fps >= 0 && g_c[g_fps].sel >= 3) ? g_c[g_fps].sel - 2 : 0) << "\r\nskip_gpu_check=" << (g_skip_gpu_check ? 1 : 0) << "\r\nmirror=" << (g_mirror >= 0 ? g_c[g_mirror].sel : 0) << "\r\nlanguage=" << g_lang_id << "\r\naniso=" << (g_aniso >= 0 ? g_c[g_aniso].sel : 0) << "\r\nup=" << (g_up >= 0 ? g_c[g_up].sel : 0) << "\r\nsharpness=" << (g_sharp >= 0 ? g_c[g_sharp].sel : 80) << "\r\nfps_cap=" << (g_fps_cap >= 0 && g_c[g_fps_cap].sel < g_c[g_fps_cap].max ? g_c[g_fps_cap].sel : 0) <<"\r\nhdr=" << (g_hdr >= 0 ? g_c[g_hdr].sel : 0) << "\r\nhdr_paper=" << (g_hdr_paper >= 0 ? g_c[g_hdr_paper].sel : 350) << "\r\nhdr_peak=" << (g_hdr_peak >= 0 ? g_c[g_hdr_peak].sel : 1000) << "\r\naa=" << (g_aa >= 0 ? g_c[g_aa].sel : 0) << "\r\nfgen=" << (g_fgen >= 0 ? g_c[g_fgen].sel : fgen_saved) <<"\r\nname=" << Narrow(g_name) << "\r\nprofile=" << (g_profile_row >= 0 ? g_c[g_profile_row].sel : 0) << "\r\nonline=" << (g_online_row >= 0 ? g_c[g_online_row].sel : 0) << "\r\nonline_host=" << Narrow(g_online_host) << "\r\nonline_recent=" << Narrow(g_online_recent) << "\r\nonline_lists=" << Narrow(g_online_lists) <<"\r\nfull=" << (full_on ? 1 : 0) << "\r\nskip_intro=" << ((g_skip_intro_row >= 0 && g_c[g_skip_intro_row].sel) ? 1 : 0) << "\r\nunlock_all=" << (unlock_all_on ? 1 : 0) << "\r\ndlc_unlock=" << (unlock_on ? 1 : 0) << "\r\noverlays=" << (g_allow_overlays ? 1 : 0) << "\r\nauto_play=" << (g_auto_play ? 1 : 0) << "\r\ncheck_updates=" << (g_check_updates ? 1 : 0) << "\r\ndraw_threads=" << (g_two_thread ? 1 : 0) << "\r\n";
+        << "\r\nfast=" << (fast_on ? 1 : 0) << "\r\nunlocked=" << ((g_fps >= 0 && g_c[g_fps].sel >= 3) ? g_c[g_fps].sel - 2 : 0) << "\r\nskip_gpu_check=" << (g_skip_gpu_check ? 1 : 0) << "\r\nmirror=" << (g_mirror >= 0 ? g_c[g_mirror].sel : 0) << "\r\nlanguage=" << g_lang_id << "\r\naniso=" << (g_aniso >= 0 ? g_c[g_aniso].sel : 0) << "\r\nup=" << (g_up >= 0 ? g_c[g_up].sel : 0) << "\r\nsharpness=" << (g_sharp >= 0 ? g_c[g_sharp].sel : 80) << "\r\nfps_cap=" << (g_fps_cap >= 0 && g_c[g_fps_cap].sel < g_c[g_fps_cap].max ? g_c[g_fps_cap].sel : 0) <<"\r\nhdr=" << (g_hdr >= 0 ? g_c[g_hdr].sel : 0) << "\r\nhdr_paper=" << (g_hdr_paper >= 0 ? g_c[g_hdr_paper].sel : 350) << "\r\nhdr_peak=" << (g_hdr_peak >= 0 ? g_c[g_hdr_peak].sel : 1000) << "\r\naa=" << (g_aa >= 0 ? g_c[g_aa].sel : 0) << "\r\nfgen=" << (g_fgen >= 0 ? g_c[g_fgen].sel : fgen_saved) <<"\r\nname=" << Narrow(g_name) << "\r\nprofile=" << (g_profile_row >= 0 ? g_c[g_profile_row].sel : 0) << "\r\nonline=" << (g_online_row >= 0 ? g_c[g_online_row].sel : 0) << "\r\nonline_host=" << Narrow(g_online_host) << "\r\nonline_recent=" << Narrow(g_online_recent) << "\r\nonline_lists=" << Narrow(g_online_lists) << "\r\nonline_server_name=" << Narrow(g_server_name) << "\r\nonline_list_on=" << Narrow(g_list_on) <<"\r\nfull=" << (full_on ? 1 : 0) << "\r\nskip_intro=" << ((g_skip_intro_row >= 0 && g_c[g_skip_intro_row].sel) ? 1 : 0) << "\r\nunlock_all=" << (unlock_all_on ? 1 : 0) << "\r\ndlc_unlock=" << (unlock_on ? 1 : 0) << "\r\noverlays=" << (g_allow_overlays ? 1 : 0) << "\r\nauto_play=" << (g_auto_play ? 1 : 0) << "\r\ncheck_updates=" << (g_check_updates ? 1 : 0) << "\r\ndraw_threads=" << (g_two_thread ? 1 : 0) << "\r\n";
     for (int k = 0; k < kGfxRows; ++k) {
       if (g_gfx[k] >= 0) ini << kGfxKey[k] << g_c[g_gfx[k]].sel << "\r\n";
     }
@@ -3317,6 +3351,26 @@ bool ServerRunning() {
   return found;
 }
 
+// Host: the name and the list servers go into the server's config.json (server.name, server.list_on) before it
+// starts; a server already running takes them at its next start.
+void WriteServerConfig(const std::wstring& dir) {
+  const std::wstring path = dir + L"\\config.json";
+  nlohmann::json config = nlohmann::json::object();
+  {
+    std::ifstream in(path.c_str(), std::ios::binary);
+    if (in) {
+      try { config = nlohmann::json::parse(in); } catch (...) { return; }  // not ours to repair: the server reports it
+    }
+  }
+  if (!config.is_object()) return;
+  nlohmann::json& server = config["server"];
+  if (!server.is_object()) server = nlohmann::json::object();
+  if (server.value("name", "") == Narrow(g_server_name) && server.value("list_on", "") == Narrow(g_list_on)) return;
+  server["name"] = Narrow(g_server_name);
+  server["list_on"] = Narrow(g_list_on);
+  SaveTextAtomically(path, config.dump(4) + "\n");
+}
+
 // Returns a problem text, empty when the game can start.
 // The community server everyone can join (Online play: Public server).
 const wchar_t* const kPublicServer = L"146.103.25.69:8080";
@@ -3334,6 +3388,7 @@ std::wstring PrepareOnline(const std::wstring& user) {
       std::any_of(g_name.begin(), g_name.end(), [](wchar_t ch) { return !(iswalnum(ch) && ch < 128) && ch != L'-' && ch != L'_'; }))
     return L"For online play the player name needs 3 to 16 letters, digits, - or _.";
   std::wstring server = L"127.0.0.1:8080";
+  if (mode == 1) WriteServerConfig(g_home + L"\\server");
   if (mode == 2) {
     if (g_online_host.empty()) return L"Type the IP address of the friend who hosts under Host's IP address.";
     server = g_online_host + L":8080";
@@ -3816,7 +3871,7 @@ std::wstring StartGame(HANDLE* process = nullptr) {
     }
     std::wstring summary = L"release " + (version.empty() ? std::wstring(L"unknown") : version) + L":";
     for (const auto& c : g_c) {
-      if (c.patches.empty() || c.patches[0] == "@name" || c.patches[0] == "@onhost" || c.patches[0] == "@myip" || c.patches[0] == "@servers" || c.patches[0] == "@lang" || IsBenchRow(c) || c.sel < 0 ||
+      if (c.patches.empty() || c.patches[0] == "@name" || c.patches[0] == "@onhost" || c.patches[0] == "@myip" || c.patches[0] == "@servers" || c.patches[0] == "@srvname" || c.patches[0] == "@liston" || c.patches[0] == "@lang" || IsBenchRow(c) || c.sel < 0 ||
           c.kind == Kind::Button)
         continue;
       summary += L" ";
@@ -4287,11 +4342,18 @@ void BrowseFolder(int which) {
 // ------------------------------------------------------------------------------------------
 void CommitName() {
   if (!g_edit) return;
-  wchar_t buf[32] = {};
-  GetWindowTextW(g_edit, buf, 31);
+  wchar_t buf[128] = {};
+  GetWindowTextW(g_edit, buf, 127);
   DestroyWindow(g_edit);
   g_edit = nullptr;
   std::wstring n;
+  if (g_edit_tag == "@srvname" || g_edit_tag == "@liston") {
+    std::wstring& value = g_edit_tag == "@srvname" ? g_server_name : g_list_on;
+    n = CleanServerText(g_edit_tag, buf);
+    if (n != value) { value = n; g_changed = true; }
+    ShowServerTexts();
+    return;
+  }
   if (g_edit_host) {
     for (wchar_t ch : std::wstring(buf)) if ((ch >= L'0' && ch <= L'9') || ch == L'.') n += ch;
     if (n != g_online_host) { g_online_host = n; g_changed = true; }
@@ -4306,9 +4368,11 @@ void CommitName() {
 void StartNameEdit(HWND parent, const Ctl& c) {
   const RectF r = Scaled(c.ctl);
   g_edit_host = c.patches[0] == "@onhost";
-  g_edit = CreateWindowExW(0, L"EDIT", g_edit_host ? g_online_host.c_str() : g_name.c_str(), WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, int(r.X + 6), int(r.Y + 6),
+  g_edit_tag = c.patches[0];
+  const std::wstring& start = g_edit_host ? g_online_host : g_edit_tag == "@srvname" ? g_server_name : g_edit_tag == "@liston" ? g_list_on : g_name;
+  g_edit = CreateWindowExW(0, L"EDIT", start.c_str(), WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, int(r.X + 6), int(r.Y + 6),
                            int(r.Width - 12), int(r.Height - 12), parent, nullptr, GetModuleHandleW(nullptr), nullptr);
-  SendMessageW(g_edit, EM_LIMITTEXT, 20, 0);
+  SendMessageW(g_edit, EM_LIMITTEXT, g_edit_tag == "@liston" ? 120 : g_edit_tag == "@srvname" ? 40 : 20, 0);
   SendMessageW(g_edit, WM_SETFONT, (WPARAM)GetStockObject(DEFAULT_GUI_FONT), TRUE);
   SendMessageW(g_edit, EM_SETSEL, 0, -1);
   SetFocus(g_edit);
@@ -4640,7 +4704,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
       const int c = HitControl(x, y, &seg);
       if (c >= 0) {
         Ctl& ctl = g_c[c];
-        if (ctl.patches[0] == "@name" || ctl.patches[0] == "@onhost") {
+        if (ctl.patches[0] == "@name" || ctl.patches[0] == "@onhost" || ctl.patches[0] == "@srvname" || ctl.patches[0] == "@liston") {
           StartNameEdit(h, ctl);
           return 0;
         }
