@@ -49,6 +49,7 @@
 #include "unlock.h"
 #include "carswitch.h"
 #include "updater.h"
+#include "server_browser.h"
 
 using namespace Gdiplus;
 
@@ -389,6 +390,10 @@ int g_skip_intro_row = -1;  // the "Skip the intro video" toggle
 int g_telemetry = -1, g_triggers = -1, telemetry_saved = 0, triggers_saved = 0;  // telemetry out and adaptive triggers; launcher.ini telemetry= triggers=
 bool skip_intro_saved = false;  // "skip_intro=" in launcher.ini
 int g_online_row = -1, g_online_host_row = -1, g_online_ip_row = -1;  // "Online play" (Off, Host, Join, Public) and "Host address" rows
+int g_servers_row = -1;           // "Servers": the server list of Join (server_browser.cpp)
+std::wstring g_online_recent;     // servers joined lately, comma-separated, from "online_recent=" in launcher.ini
+std::wstring g_online_lists;      // servers that keep a list of others, comma-separated, from "online_lists=" (hand-written)
+std::vector<FoundServer> g_found; // the "Servers" row's servers, after its first entry (search again)
 int g_profile_row = -1, g_save_backup_row = -1, g_save_restore_row = -1;  // "Save profile" and its two buttons
 int profile_saved = 0;  // "Save profile" choice, from "profile=" in launcher.ini
 int online_saved = 0;             // "Online play" choice, from "online=" in launcher.ini
@@ -592,6 +597,48 @@ bool BlurRowLocked(const Ctl& c) {
 }
 // Rows that do nothing with the other choices: the physics settings with Original Physics; Upscaling and
 // Sharpness without FSR or DLSS; Render resolution while Upscaling sets the render size.
+// The "Servers" row: a search (search = true, about two seconds) or the last one's servers, kept in
+// data\ui\servers.json for the launcher's short-lived UI processes. The chosen server is the one joined.
+long long ServersAge() {
+  long long age = -1;
+  LoadServers(g_data + L"\\ui\\servers.json", &age);
+  return age;
+}
+
+void ShowServers(bool search) {
+  if (g_servers_row < 0) return;
+  const std::wstring dir = g_data + L"\\ui", path = dir + L"\\servers.json";
+  if (search) {
+    std::vector<std::wstring> known;
+    std::wstringstream recent(g_online_recent + L"," + g_online_lists);
+    for (std::wstring a; std::getline(recent, a, L',');)
+      if (!a.empty()) known.push_back(a);
+    if (!g_online_host.empty()) known.push_back(g_online_host);
+    g_found = FindServers(known);
+    CreateDirectoryW(dir.c_str(), nullptr);
+    SaveServers(path, g_found);
+  } else {
+    g_found = LoadServers(path, nullptr);
+  }
+  Ctl& c = g_c[g_servers_row];
+  c.items.assign(1, g_found.empty() ? std::wstring(search ? L"Search again (none found)" : L"Search for servers")
+                                    : L"Search again (" + std::to_wstring(g_found.size()) + L" found)");
+  c.patches.assign(1, "@servers");
+  c.sel = 0;
+  for (size_t i = 0; i < g_found.size(); ++i) {
+    c.items.push_back(DescribeServer(g_found[i]));
+    c.patches.push_back("@servers");
+    if (g_found[i].address == g_online_host) c.sel = int(i) + 1;
+  }
+}
+
+// The "Servers" row's choice: a server is joined, the first entry searches again.
+void ChooseServer(int sel) {
+  if (sel <= 0 || sel > int(g_found.size())) return;
+  g_online_host = g_found[sel - 1].address;
+  if (g_online_host_row >= 0) g_c[g_online_host_row].items[0] = g_online_host;
+}
+
 bool RowHidden(const Ctl& c) {
   if (c.physics_only && !PhysicsChosen()) return true;
   for (int s : g_nr_sub)
@@ -603,6 +650,7 @@ bool RowHidden(const Ctl& c) {
   if (g_fps_cap >= 0 && &c == &g_c[g_fps_cap]) return g_fps >= 0 && g_c[g_fps].sel != 3;
   if (g_online_host_row >= 0 && &c == &g_c[g_online_host_row]) return g_online_row >= 0 && g_c[g_online_row].sel != 2;
   if (g_online_ip_row >= 0 && &c == &g_c[g_online_ip_row]) return g_online_row >= 0 && g_c[g_online_row].sel != 1;
+  if (g_servers_row >= 0 && &c == &g_c[g_servers_row]) return g_online_row >= 0 && g_c[g_online_row].sel != 2;
   if ((g_hdr_paper >= 0 && &c == &g_c[g_hdr_paper]) || (g_hdr_peak >= 0 && &c == &g_c[g_hdr_peak]))
     return g_hdr >= 0 && g_c[g_hdr].sel == 0;
   for (int p : g_picture)  // the SDR picture; HDR has its own brightness
@@ -1357,6 +1405,11 @@ void BuildModel() {
   g_online_host_row = seg(L"Host's IP address", L"The IP address of the friend who hosts, over the LAN or VPN (for example 100.67.1.2).\n"
                           L"\x2022 Click it to type one.",
                           {g_online_host.empty() ? std::wstring(L"(not set)") : g_online_host}, {"@onhost"}, 0);
+  g_servers_row = seg(L"Servers",
+                      L"Co-op servers found on their own: your Tailscale devices, your home network and Hamachi or Radmin, the servers you joined lately, "
+                      L"and every server listed on those (a host can list its server on a friend's with server.list_on in its server\\config.json). "
+                      L"Choose one to join it; choose the first entry to search again.",
+                      {L"Search for servers"}, {"@servers"}, 0);
   g_mirror = seg(L"Mirror and reflection updates",
                  L"How often the mirrors, reflections and rain on the glass are redrawn.\n"
                  L"\x2022 Live: every frame, as on PS4. This second, smaller scene is about a quarter of all the game's drawing.\n"
@@ -1785,7 +1838,7 @@ void BuildModel() {
   g_cards.push_back({L"NEURAL RENDERING", {g_neural, g_nr_sub[0], g_nr_sub[1], g_nr_sub[2], g_nr_sub[3], g_nr_sub[4]}, 0, kTabDetail,
                      L"Touches up the picture after upscaling. Needs a GeForce RTX card and NVIDIA's own nvngx_dlssnr.dll in the runtime folder: this release does not include it."});
   g_cards.push_back({L"PLAYER", {pname, g_lang}, 0, kTabGameplay});
-  g_cards.push_back({L"ONLINE", {g_online_row, g_online_ip_row, g_online_host_row}, 0, kTabGameplay,
+  g_cards.push_back({L"ONLINE", {g_online_row, g_online_ip_row, g_servers_row, g_online_host_row}, 0, kTabGameplay,
                      L"Private multiplayer with friends. Everyone needs the same version of the game. In the game, L3+R3 (keyboard: Left Ctrl+V) opens the online menu: bots, AI difficulty, XP boost, championships."});
   g_cards.push_back({L"CONTENT", {unlock, unlock_all}, 0, kTabGameplay});
   g_cards.push_back({L"SAVES", {g_profile_row, g_save_backup_row, g_save_restore_row}, 0, kTabGameplay});
@@ -1917,6 +1970,8 @@ void LoadSettings() {
     if (line.rfind("name=", 0) == 0) g_name = Widen(line.substr(5));
     if (line.rfind("online=", 0) == 0) online_saved = atoi(line.substr(7).c_str());
     if (line.rfind("online_host=", 0) == 0) g_online_host = Widen(line.substr(12));
+    if (line.rfind("online_recent=", 0) == 0) g_online_recent = Widen(line.substr(14));
+    if (line.rfind("online_lists=", 0) == 0) g_online_lists = Widen(line.substr(13));
     if (line.rfind("mirror=", 0) == 0) mirror_saved = atoi(line.substr(7).c_str());
     if (line.rfind("aniso=", 0) == 0) aniso_saved = atoi(line.substr(6).c_str());
     if (line.rfind("language=", 0) == 0) lang_saved = atoi(line.substr(9).c_str());
@@ -2010,6 +2065,7 @@ void LoadSettings() {
   if (g_triggers >= 0) g_c[g_triggers].sel = triggers_saved == 1 ? 1 : 0;
   g_playtime_text = PlayTimeText();
   if (g_online_host_row >= 0) g_c[g_online_host_row].items[0] = g_online_host.empty() ? L"(not set)" : g_online_host;
+  ShowServers(false);
   CheckFolders();
   const auto lines = ReadLines(SelectionPath());
   const bool has_selection = !lines.empty() || Exists(SelectionPath());
@@ -2276,8 +2332,17 @@ bool SaveSettings() {
       if (c.kind == Kind::Toggle && c.patches[0] == "@autoplay") g_auto_play = c.sel != 0;
       if (c.kind == Kind::Toggle && c.patches[0] == "@updatecheck") g_check_updates = c.sel != 0;
     }
+    // Join: the host goes to the front of the servers joined lately (the server list asks them first).
+    if (g_online_row >= 0 && g_c[g_online_row].sel == 2 && !g_online_host.empty()) {
+      std::wstring recent = g_online_host;
+      std::wstringstream old(g_online_recent);
+      int kept = 1;
+      for (std::wstring a; std::getline(old, a, L',') && kept < 8;)
+        if (!a.empty() && a != g_online_host) { recent += L"," + a; ++kept; }
+      g_online_recent = recent;
+    }
     ini << "update=" << Narrow(g_folder[0].path) << "\r\nbase=" << Narrow(g_folder[1].path) << "\r\nfps=" << (fps_on ? 1 : 0)
-        << "\r\nfast=" << (fast_on ? 1 : 0) << "\r\nunlocked=" << ((g_fps >= 0 && g_c[g_fps].sel >= 3) ? g_c[g_fps].sel - 2 : 0) << "\r\nskip_gpu_check=" << (g_skip_gpu_check ? 1 : 0) << "\r\nmirror=" << (g_mirror >= 0 ? g_c[g_mirror].sel : 0) << "\r\nlanguage=" << g_lang_id << "\r\naniso=" << (g_aniso >= 0 ? g_c[g_aniso].sel : 0) << "\r\nup=" << (g_up >= 0 ? g_c[g_up].sel : 0) << "\r\nsharpness=" << (g_sharp >= 0 ? g_c[g_sharp].sel : 80) << "\r\nfps_cap=" << (g_fps_cap >= 0 && g_c[g_fps_cap].sel < g_c[g_fps_cap].max ? g_c[g_fps_cap].sel : 0) <<"\r\nhdr=" << (g_hdr >= 0 ? g_c[g_hdr].sel : 0) << "\r\nhdr_paper=" << (g_hdr_paper >= 0 ? g_c[g_hdr_paper].sel : 350) << "\r\nhdr_peak=" << (g_hdr_peak >= 0 ? g_c[g_hdr_peak].sel : 1000) << "\r\naa=" << (g_aa >= 0 ? g_c[g_aa].sel : 0) << "\r\nfgen=" << (g_fgen >= 0 ? g_c[g_fgen].sel : fgen_saved) <<"\r\nname=" << Narrow(g_name) << "\r\nprofile=" << (g_profile_row >= 0 ? g_c[g_profile_row].sel : 0) << "\r\nonline=" << (g_online_row >= 0 ? g_c[g_online_row].sel : 0) << "\r\nonline_host=" << Narrow(g_online_host) <<"\r\nfull=" << (full_on ? 1 : 0) << "\r\nskip_intro=" << ((g_skip_intro_row >= 0 && g_c[g_skip_intro_row].sel) ? 1 : 0) << "\r\nunlock_all=" << (unlock_all_on ? 1 : 0) << "\r\ndlc_unlock=" << (unlock_on ? 1 : 0) << "\r\noverlays=" << (g_allow_overlays ? 1 : 0) << "\r\nauto_play=" << (g_auto_play ? 1 : 0) << "\r\ncheck_updates=" << (g_check_updates ? 1 : 0) << "\r\ndraw_threads=" << (g_two_thread ? 1 : 0) << "\r\n";
+        << "\r\nfast=" << (fast_on ? 1 : 0) << "\r\nunlocked=" << ((g_fps >= 0 && g_c[g_fps].sel >= 3) ? g_c[g_fps].sel - 2 : 0) << "\r\nskip_gpu_check=" << (g_skip_gpu_check ? 1 : 0) << "\r\nmirror=" << (g_mirror >= 0 ? g_c[g_mirror].sel : 0) << "\r\nlanguage=" << g_lang_id << "\r\naniso=" << (g_aniso >= 0 ? g_c[g_aniso].sel : 0) << "\r\nup=" << (g_up >= 0 ? g_c[g_up].sel : 0) << "\r\nsharpness=" << (g_sharp >= 0 ? g_c[g_sharp].sel : 80) << "\r\nfps_cap=" << (g_fps_cap >= 0 && g_c[g_fps_cap].sel < g_c[g_fps_cap].max ? g_c[g_fps_cap].sel : 0) <<"\r\nhdr=" << (g_hdr >= 0 ? g_c[g_hdr].sel : 0) << "\r\nhdr_paper=" << (g_hdr_paper >= 0 ? g_c[g_hdr_paper].sel : 350) << "\r\nhdr_peak=" << (g_hdr_peak >= 0 ? g_c[g_hdr_peak].sel : 1000) << "\r\naa=" << (g_aa >= 0 ? g_c[g_aa].sel : 0) << "\r\nfgen=" << (g_fgen >= 0 ? g_c[g_fgen].sel : fgen_saved) <<"\r\nname=" << Narrow(g_name) << "\r\nprofile=" << (g_profile_row >= 0 ? g_c[g_profile_row].sel : 0) << "\r\nonline=" << (g_online_row >= 0 ? g_c[g_online_row].sel : 0) << "\r\nonline_host=" << Narrow(g_online_host) << "\r\nonline_recent=" << Narrow(g_online_recent) << "\r\nonline_lists=" << Narrow(g_online_lists) <<"\r\nfull=" << (full_on ? 1 : 0) << "\r\nskip_intro=" << ((g_skip_intro_row >= 0 && g_c[g_skip_intro_row].sel) ? 1 : 0) << "\r\nunlock_all=" << (unlock_all_on ? 1 : 0) << "\r\ndlc_unlock=" << (unlock_on ? 1 : 0) << "\r\noverlays=" << (g_allow_overlays ? 1 : 0) << "\r\nauto_play=" << (g_auto_play ? 1 : 0) << "\r\ncheck_updates=" << (g_check_updates ? 1 : 0) << "\r\ndraw_threads=" << (g_two_thread ? 1 : 0) << "\r\n";
     for (int k = 0; k < kGfxRows; ++k) {
       if (g_gfx[k] >= 0) ini << kGfxKey[k] << g_c[g_gfx[k]].sel << "\r\n";
     }
@@ -3751,7 +3816,7 @@ std::wstring StartGame(HANDLE* process = nullptr) {
     }
     std::wstring summary = L"release " + (version.empty() ? std::wstring(L"unknown") : version) + L":";
     for (const auto& c : g_c) {
-      if (c.patches.empty() || c.patches[0] == "@name" || c.patches[0] == "@onhost" || c.patches[0] == "@myip" || c.patches[0] == "@lang" || IsBenchRow(c) || c.sel < 0 ||
+      if (c.patches.empty() || c.patches[0] == "@name" || c.patches[0] == "@onhost" || c.patches[0] == "@myip" || c.patches[0] == "@servers" || c.patches[0] == "@lang" || IsBenchRow(c) || c.sel < 0 ||
           c.kind == Kind::Button)
         continue;
       summary += L" ";
@@ -4678,6 +4743,15 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
           // choices that show or hide other rows (RowHidden)
           const bool model_changed = (c == g_ffb_model || c == g_aa || c == g_up || c == g_fps) && ctl.sel != seg;
           ctl.sel = seg;
+          if (c == g_servers_row) {
+            if (seg == 0) ShowServers(true);  // search again
+            else ChooseServer(seg);
+            Relayout(h);
+          }
+          if (c == g_online_row && seg == 2) {
+            ShowServers(true);
+            Relayout(h);
+          }
           if (c == g_fps && model_changed) ApplyFrameModeCameraDefault();
           if (c == g_preset) ApplyPreset(seg);
           else if (c == g_outres || c == g_inres || c == g_aspect) {

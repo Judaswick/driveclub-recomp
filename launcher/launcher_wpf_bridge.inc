@@ -109,6 +109,10 @@ void ImportUiState(const Json& input) {
       const std::string host=item.value("Text",Narrow(g_online_host));
       if(host.size()>15||std::any_of(host.begin(),host.end(),[](unsigned char ch){return !(ch=='.'||(ch>='0'&&ch<='9'));}))throw std::runtime_error("Host address must be an IPv4 address");
       g_online_host=Widen(host);c.items[0]=g_online_host.empty()?L"(not set)":g_online_host;
+    }else if(id==g_servers_row){
+      // the list the UI showed is the last search's (data\ui\servers.json, loaded at start)
+      if(selected<0||selected>int(g_found.size()))throw std::runtime_error("Invalid server");
+      c.sel=selected;ChooseServer(selected);
     }else if(id==g_lang){if(selected<0||selected>=21)throw std::runtime_error("Invalid language");g_lang_id=selected;c.items[0]=kLangName[selected];}
     else if(id==g_btrack){if(selected<0||selected>=kBenchTrackCount)throw std::runtime_error("Invalid track");g_bench_track=selected;}
     else if(id==g_bcar){if(selected<0||selected>=kBenchCarCount)throw std::runtime_error("Invalid car");g_bench_car=selected;}
@@ -128,6 +132,8 @@ int RunWpfBridge(int argc,wchar_t** argv) {
   try{
     if(command==L"--ui-state"){
       if(!g_skip_gpu_check){g_gpu_problem=CheckCpu();if(g_gpu_problem.empty())g_gpu_problem=CheckGpu();}
+      // Join: the server list is searched when the launcher opens (a search older than a minute)
+      if(g_online_row>=0&&g_c[g_online_row].sel==2){const long long age=ServersAge();ShowServers(age<0||age>60000);}
     }else if(argc>=4){
       std::ifstream in(argv[2],std::ios::binary);const Json request=Json::parse(in);ImportUiState(request);
       if(command==L"--ui-reset-page"){
@@ -154,6 +160,8 @@ int RunWpfBridge(int argc,wchar_t** argv) {
       else if(command==L"--ui-validate"){
         const int changed=request.value("ChangedId",-1);
         if(changed==g_fps)ApplyFrameModeCameraDefault();
+        // the server list: searched when Join is chosen and when its first entry ("Search again") is
+        if((changed==g_online_row&&g_c[g_online_row].sel==2)||(changed==g_servers_row&&g_c[g_servers_row].sel==0))ShowServers(true);
         if(changed==g_aspect && g_c[g_aspect].sel>0){g_c[g_outres].sel=g_c[g_inres].sel=0;}
         if((changed==g_outres || changed==g_inres) && (g_c[g_outres].sel>0 || g_c[g_inres].sel>0)){
           if(g_aspect>=0)g_c[g_aspect].sel=0;
