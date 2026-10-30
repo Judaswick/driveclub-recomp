@@ -27,7 +27,15 @@ online status work. Public matchmaking and ghosts do not yet. Details: [README.m
 1. **Host:** in the launcher, **General**, **ONLINE**, choose **Host a session**, then press Play. The server starts
    and the launcher shows your IP addresses (Tailscale `100.x`, Hamachi `25.x`, Radmin `26.x`, home network
    `192.168.x`). Give one of them to your friends.
-2. **Friends:** **ONLINE**, **Join a session**, type the host's IP address under **Host's IP address**, then press Play.
+2. **Friends:** **ONLINE**, **Join a session**. The **Servers** row lists the servers found on their own (your Tailscale
+   devices, your home network, Hamachi or Radmin, the servers you joined lately) with their name, players and ping:
+   choose one, then press Play. Its first entry searches again. Or type the host's IP address under
+   **Host's IP address**.
+
+A server can also list other servers: a host sets `"list_on": "<address of a friend's server>"` under `"server"` in
+`server\config.json` (and a name under `"name"`), and everyone who finds that friend's server finds this one too.
+A list server for everyone (for example one that is always on) goes into the launcher's `launcher.ini` as
+`online_lists=<address>`.
 3. Join the other player's session from the friends list, or invite them to a private lobby, then start an event.
    Promoting a leader and kicking a player work too.
 
