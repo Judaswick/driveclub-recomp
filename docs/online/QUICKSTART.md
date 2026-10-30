@@ -45,7 +45,7 @@ right, select with Cross, close with Circle.
 
 | Row | What it does |
 |---|---|
-| Nitro for every car | the game's own boost (as on the Wombat Typhoon and McLaren P1) on every car, from the next race: hold X / Cross; the charge refills while driving and braking |
+| Nitro for every car | Off, On or Unlimited, from the next race: hold X / Cross. On, the charge (turquoise bar above the speedometer) runs out in about 4 s and fills again when you let go; Unlimited never runs out (purple bar) |
 | Bots | AI bots in the private lobby, set by the host (the same in every game, bumps included) |
 | AI difficulty | the game's own, Rookie ... Legend, for every race (online and offline) |
 | XP boost | double fame online |
