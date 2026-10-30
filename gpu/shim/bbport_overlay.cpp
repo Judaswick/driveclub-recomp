@@ -52,6 +52,13 @@ asm(".section .rodata\n"
     ".previous\n");
 #endif
 extern "C" int runtime_file_translate(const char* guest, char* out, size_t size);
+extern "C" void bbnet_championship_command(int command); // np_handler.cpp
+extern "C" void bbnet_online_state(int* xp_boost, int* races, int* race, int* active);
+extern "C" const char* runtime_ai_difficulty_name(void); // src/runtime_championship.c
+extern "C" void runtime_ai_difficulty_step(int dir);
+extern "C" int runtime_bots_count(void);
+extern "C" int runtime_bots_is_host(void);
+extern "C" uint32_t runtime_pad_gamepad_id(void); // src/runtime_pad.c
 extern "C" const unsigned char bb_font_ttf[];
 extern "C" const unsigned char bb_font_ttf_end[];
 
@@ -103,6 +110,72 @@ std::chrono::steady_clock::time_point picture_until{};
 float base_scale = 1.0f;
 ImFont *exit_body=nullptr,*exit_heading=nullptr;
 std::atomic<bool> mouse_capture_requested{false};
+// The online menu (F1 or L3+R3): bots, AI difficulty, XP boost and championships, worked with the d-pad or
+// arrow keys, Cross or Enter, Circle or Esc. Guarded by imgui_mutex except online_open.
+std::atomic<bool> online_open{false};
+int online_row = 0;
+bool stick_down[2] = {false, false}; // L3, R3
+
+enum OnlineRow { RowBots, RowDifficulty, RowXp, RowAdd, RowChampionship, RowRandom, RowClose, RowCount };
+
+// Left/right (dir -1/+1) or Cross (dir 0) on a row of the online menu.
+void OnlineAct(int row, int dir) {
+    switch (row) {
+    case RowBots: bbnet_championship_command(dir < 0 ? 6 : 3); break;
+    case RowDifficulty: runtime_ai_difficulty_step(dir < 0 ? -1 : 1); break;
+    case RowXp: bbnet_championship_command(4); break;
+    case RowAdd: if (!dir) bbnet_championship_command(1); break;
+    case RowChampionship: if (!dir) bbnet_championship_command(2); break;
+    case RowRandom: if (!dir) { bbnet_championship_command(5); online_open = false; } break;
+    case RowClose: if (!dir) online_open = false; break;
+    default: break;
+    }
+}
+
+void OnlineMenu(float scale) {
+    int xp = -1, races = 0, race = 0, active = 0;
+    bbnet_online_state(&xp, &races, &race, &active);
+    const bool host = runtime_bots_is_host() != 0;
+    char rows[RowCount][96];
+    std::snprintf(rows[RowBots], sizeof rows[0], "Bots in the private lobby:  < %d >%s", runtime_bots_count(),
+                  host ? "" : "  (the host sets them)");
+    std::snprintf(rows[RowDifficulty], sizeof rows[0], "AI difficulty:  < %s >", runtime_ai_difficulty_name());
+    std::snprintf(rows[RowXp], sizeof rows[0], "XP boost (x2 fame online):  %s", xp < 0 ? "..." : xp ? "On" : "Off");
+    std::snprintf(rows[RowAdd], sizeof rows[0], "Add the lobby's race to the championship  (%d set)", active ? 0 : races);
+    if (active) std::snprintf(rows[RowChampionship], sizeof rows[0], "Stop the championship  (race %d of %d)", race, races);
+    else std::snprintf(rows[RowChampionship], sizeof rows[0], "Start the championship  (%d race%s)", races, races == 1 ? "" : "s");
+    std::snprintf(rows[RowRandom], sizeof rows[0], "Random championship: 3 races, starts now");
+    std::snprintf(rows[RowClose], sizeof rows[0], "Close");
+
+    ImGuiIO& io = ImGui::GetIO();
+    auto* draw = ImGui::GetBackgroundDrawList(); // under the notes, which say what a choice did
+    const ImU32 red = IM_COL32(237, 43, 56, 255), white = IM_COL32(242, 242, 244, 255);
+    draw->AddRectFilled(ImVec2(0, 0), io.DisplaySize, IM_COL32(0, 0, 0, 150));
+    const float row_h = 46 * scale, w = 640 * scale, h = 96 * scale + row_h * RowCount + 50 * scale;
+    const ImVec2 pos((io.DisplaySize.x - w) * 0.5f, (io.DisplaySize.y - h) * 0.5f);
+    draw->AddRectFilled(pos, ImVec2(pos.x + w, pos.y + h), IM_COL32(16, 16, 16, 245));
+    draw->AddRectFilled(pos, ImVec2(pos.x + 3 * scale, pos.y + h), red);
+    draw->AddText(exit_heading, 28 * scale, ImVec2(pos.x + 32 * scale, pos.y + 26 * scale), white, "ONLINE");
+    for (int i = 0; i < RowCount; ++i) {
+        const ImVec2 a(pos.x + 24 * scale, pos.y + 84 * scale + i * row_h), b(pos.x + w - 24 * scale, a.y + row_h - 6 * scale);
+        draw->AddRectFilled(a, b, i == online_row ? red : IM_COL32(32, 32, 36, 255));
+        const ImVec2 size = exit_body->CalcTextSizeA(19 * scale, FLT_MAX, 0, rows[i]);
+        draw->AddText(exit_body, 19 * scale, ImVec2(a.x + 16 * scale, a.y + (b.y - a.y - size.y) * 0.5f), white, rows[i]);
+    }
+    const char* footer = "D-pad: choose and change   Cross: select   Circle: close   (L3+R3 / F1)";
+    const ImVec2 footer_size = exit_body->CalcTextSizeA(15 * scale, FLT_MAX, 0, footer);
+    draw->AddText(exit_body, 15 * scale, ImVec2(pos.x + (w - footer_size.x) * 0.5f, pos.y + h - 36 * scale),
+                  IM_COL32(155, 155, 160, 255), footer);
+}
+
+// Navigation in the online menu; true when the event was one of its keys or buttons.
+bool OnlineInput(int up_down, int left_right, bool select, bool back) {
+    if (back) online_open = false;
+    if (up_down) online_row = (online_row + up_down + RowCount) % RowCount;
+    if (left_right) OnlineAct(online_row, left_right);
+    if (select) OnlineAct(online_row, 0);
+    return up_down || left_right || select || back;
+}
 
 void ExitConfirmation(float scale) {
     const auto view=runtime_exit_view();
@@ -340,6 +413,11 @@ void PollHotkeys() {
         }
     }
     f8_down = f8;
+    // F1: the online menu (L3+R3 on a controller, see HandleEvent).
+    static bool f1_down = false;
+    if (edge(VK_F1, f1_down) && SDL_GetKeyboardFocus()) {
+        online_open = !online_open;
+    }
 #endif
 }
 
@@ -874,7 +952,7 @@ bool HandleEvent(const SDL_Event& event) {
     }
     ImGuiIO& io = ImGui::GetIO();
     const bool exit_capture=runtime_exit_captures()!=0;
-    if (event.type==SDL_EVENT_KEY_DOWN || event.type==SDL_EVENT_KEY_UP) {
+    if ((event.type==SDL_EVENT_KEY_DOWN || event.type==SDL_EVENT_KEY_UP) && !online_open) {
         if (event.type==SDL_EVENT_KEY_DOWN && !event.key.repeat) runtime_exit_mouse_activity();
         unsigned action=0;
         switch(event.key.key) {
@@ -889,6 +967,40 @@ bool HandleEvent(const SDL_Event& event) {
     if (exit_capture && (event.type==SDL_EVENT_MOUSE_BUTTON_DOWN ||
         (event.type==SDL_EVENT_MOUSE_MOTION && (event.motion.xrel!=0 || event.motion.yrel!=0))))
         runtime_exit_mouse_activity();
+    // The online menu: L3+R3 opens and closes it; while open it takes the d-pad, Cross and Circle (and the
+    // arrow keys, Enter and Esc), and the game gets nothing (CapturesInput).
+    if ((event.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN || event.type == SDL_EVENT_GAMEPAD_BUTTON_UP) &&
+        event.gbutton.which == runtime_pad_gamepad_id()) { // two games on one PC: only this game's controller
+        const bool down = event.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN;
+        const u8 button = event.gbutton.button;
+        if (button == SDL_GAMEPAD_BUTTON_LEFT_STICK || button == SDL_GAMEPAD_BUTTON_RIGHT_STICK) {
+            const bool both_before = stick_down[0] && stick_down[1];
+            stick_down[button == SDL_GAMEPAD_BUTTON_RIGHT_STICK] = down;
+            if (!both_before && stick_down[0] && stick_down[1] && !exit_capture) {
+                online_open = !online_open;
+                return true;
+            }
+        }
+        if (online_open) {
+            if (down) {
+                OnlineInput(button == SDL_GAMEPAD_BUTTON_DPAD_UP ? -1 : button == SDL_GAMEPAD_BUTTON_DPAD_DOWN ? 1 : 0,
+                            button == SDL_GAMEPAD_BUTTON_DPAD_LEFT ? -1 : button == SDL_GAMEPAD_BUTTON_DPAD_RIGHT ? 1 : 0,
+                            button == SDL_GAMEPAD_BUTTON_SOUTH, button == SDL_GAMEPAD_BUTTON_EAST);
+            }
+            return true;
+        }
+    }
+    if (online_open && (event.type == SDL_EVENT_KEY_DOWN || event.type == SDL_EVENT_KEY_UP)) {
+        if (event.type == SDL_EVENT_KEY_DOWN) {
+            const SDL_Keycode k = event.key.key;
+            OnlineInput(k == SDLK_UP ? -1 : k == SDLK_DOWN ? 1 : 0, k == SDLK_LEFT ? -1 : k == SDLK_RIGHT ? 1 : 0,
+                        k == SDLK_RETURN || k == SDLK_KP_ENTER, k == SDLK_ESCAPE);
+        }
+        return true;
+    }
+    if (online_open && event.type == SDL_EVENT_GAMEPAD_AXIS_MOTION) {
+        return true;
+    }
     const bool is_open = menu_open || exit_capture;
     switch (event.type) {
     case SDL_EVENT_WINDOW_FOCUS_LOST:
@@ -974,7 +1086,7 @@ bool HandleEvent(const SDL_Event& event) {
 }
 
 bool Visible() {
-    return initialized && (runtime_exit_captures() || menu_open || text_entry_active || note_active || trophy_active || BbSettings::Get().show_fps ||
+    return initialized && (runtime_exit_captures() || menu_open || online_open || text_entry_active || note_active || trophy_active || BbSettings::Get().show_fps ||
                            BbSettings::Get().show_pedals || picture_row >= 0);
 }
 
@@ -993,11 +1105,11 @@ void Note(const std::string& text) {
 }
 
 bool CapturesInput() {
-    return runtime_exit_captures() || menu_open || text_entry_active;
+    return runtime_exit_captures() || menu_open || text_entry_active || online_open;
 }
 bool ExitDialogAvailable() {
     std::scoped_lock lock{imgui_mutex};
-    return initialized && !text_entry_active && !menu_open;
+    return initialized && !text_entry_active && !menu_open && !online_open;
 }
 
 void SetTextEntry(bool active, const std::string& prompt, const std::string& text) {
@@ -1079,6 +1191,9 @@ void Render(vk::CommandBuffer cmdbuf, vk::ImageView view, vk::Extent2D extent) {
             trophy_showing = false;
             trophy_active = !trophy_queue.empty();
         }
+    }
+    if (online_open) {
+        OnlineMenu(scale);
     }
     ExitConfirmation(scale);
     ImGui::Render();

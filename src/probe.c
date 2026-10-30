@@ -903,6 +903,31 @@ static void patch_crowd_get(unsigned char *image, uint64_t size) {
     memcpy(site + 1, &rel, 4);
     printf("BB_CROWD_EXACT: crowd heights getter call patched\n");
 }
+/* A guest call (e8 rel32 at site_at, to target) goes to a host hook through a near thunk instead; the hook has the
+ * callee's arguments and calls the callee itself. */
+static void patch_call(unsigned char *image, uint64_t size, uint64_t site_at, uint64_t target, uintptr_t hook,
+                       const char *name) {
+    if (size < site_at + 16 || !hook) return;
+    unsigned char *site = image + site_at;
+    int32_t rel;
+    memcpy(&rel, site + 1, 4);
+    if (site[0] != 0xe8 || (int64_t)site_at + 5 + (int64_t)rel != (int64_t)target) {
+        printf("%s: site %#" PRIx64 " is not the expected call; not patched\n", name, site_at);
+        return;
+    }
+    unsigned char *thunk = allocate(page_size);
+    thunk[0] = 0x48; thunk[1] = 0xb8; memcpy(thunk + 2, &hook, 8); /* movabs rax, hook */
+    thunk[10] = 0xff; thunk[11] = 0xe0;                              /* jmp rax */
+    protect(thunk, page_size, 5);
+    int64_t to = (int64_t)((uintptr_t)thunk - ((uintptr_t)site + 5));
+    if (to != (int32_t)to) {
+        printf("%s: thunk out of range; not patched\n", name);
+        return;
+    }
+    rel = (int32_t)to;
+    memcpy(site + 1, &rel, 4);
+    printf("%s: call at %#" PRIx64 " patched\n", name, site_at);
+}
 /* BBPATCH2 (patches.py): the patches' image base, then byte writes at image offsets, applied
  * after relocation. A write may replace a whole base-relative pointer slot (60/90 FPS++ swap
  * function pointers): the patch holds the address at the patches' base, rebased here. */
@@ -1521,6 +1546,13 @@ int main(int argc, char **argv) {
     if (!cpu_only) patch_cloud_get(image, size);
     if (!cpu_only) patch_query_get(image, size);
     if (!cpu_only) patch_crowd_get(image, size);
+    /* Bots in private lobby races (runtime_championship.c): the lobby's entrant calls, then the AI after them. */
+    patch_call(image, size, 0x37d3f7, 0x3ff0, (uintptr_t)runtime_bots_entrant_hook, "Bots");
+    patch_call(image, size, 0x37d44e, 0x3da0, (uintptr_t)runtime_bots_done_hook, "Bots");
+    /* The AI difficulty (Shift+F1): the single event's, the tour's and the other two calls of the skill setter. */
+    static const uint64_t difficulty_sites[] = {0x118a87, 0x192037, 0x350490, 0xefb9a6};
+    for (int i = 0; i < 4; ++i)
+        patch_call(image, size, difficulty_sites[i], 0x5360, (uintptr_t)runtime_ai_difficulty_hook, "AI difficulty");
 #ifdef _WIN32
     printf("Guest TCB loads redirected to the TEB TLS slot: %" PRIu64 "\n", patch_tcb_loads(segments, ns));
 #endif

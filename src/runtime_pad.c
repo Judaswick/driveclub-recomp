@@ -249,7 +249,8 @@ static void motion_sample(PadData *d, SDL_Gamepad *g, const bool *k, bool neutra
 }
 
 static void apply_light(void);
-/* Opens the first gamepad SDL knows about; called under lock. */
+/* Opens the first gamepad SDL knows about, or with BB_PAD_INDEX=<n> the n-th (1 = first, 0 = none: keyboard only),
+ * so two games on one PC each take their own controller; called under lock. */
 static SDL_Gamepad *current_gamepad(void) {
     if (!sdl_ready) {
         /* Controllers must keep working while the game window is not the foreground window. */
@@ -262,9 +263,16 @@ static SDL_Gamepad *current_gamepad(void) {
     if (!gamepad) {
         int count=0;
         SDL_JoystickID *ids=SDL_GetGamepads(&count);
-        int first=0;
-        while (ids && first<count && wheel && ids[first]==wheel_id) ++first;
-        if (ids && first<count) {
+        static int wanted=-1; /* BB_PAD_INDEX, -1 = the first */
+        static int wanted_read;
+        if (!wanted_read) { const char *e=getenv("BB_PAD_INDEX"); wanted=e && *e ? atoi(e) : -1; wanted_read=1; }
+        int first=0, skip=wanted>0 ? wanted-1 : 0;
+        for (;;) {
+            while (ids && first<count && wheel && ids[first]==wheel_id) ++first;
+            if (!skip || !ids || first>=count) break;
+            ++first; --skip;
+        }
+        if (ids && first<count && wanted!=0) {
             gamepad=SDL_OpenGamepad(ids[first]);
             if (gamepad) {
                 ++connected_count;
@@ -281,6 +289,11 @@ static SDL_Gamepad *current_gamepad(void) {
         SDL_free(ids);
     }
     return gamepad;
+}
+/* The controller this game reads (SDL joystick id, 0 none), so the overlay's menu answers only to it. */
+uint32_t runtime_pad_gamepad_id(void) {
+    SDL_Gamepad *g=gamepad;
+    return g ? (uint32_t)SDL_GetGamepadID(g) : 0;
 }
 static void sample_buttons(PadData *d) {
     memset(d,0,sizeof(*d));
@@ -857,6 +870,7 @@ static ABI int32_t pad_read_state(int32_t handle, PadData *data) {
     pthread_mutex_unlock(&lock);
     game_options_apply();   /* the game's thread, outside the lock: the setters tell the rest of the game */
     camera_fov_apply();
+    runtime_championship_frame();
     return 0;
 }
 /* Buffered read: the port samples once per call, so one entry is returned. */

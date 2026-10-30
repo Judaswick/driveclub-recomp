@@ -35,6 +35,9 @@ constexpr u16 kSignalingVPortNbo = 0xffff;
 // libSceRudp traffic (core/libraries/network/rudp.cpp) on its own virtual port.
 constexpr u16 kRudpVPortNbo = 0xfeff;
 std::atomic<P2PRudpReceiver> g_rudp_receiver{nullptr};
+// The bots' states in private lobby races (np_handler.cpp: the host sends, the guests apply).
+constexpr u16 kBotsVPortNbo = 0xfefe;
+std::atomic<P2PRudpReceiver> g_bots_receiver{nullptr};
 constexpr size_t kVPortHeaderSize = 4;
 constexpr size_t kMaxUdpPayload = 65507;
 constexpr size_t kMaxP2PPayload = kMaxUdpPayload - kVPortHeaderSize;
@@ -443,6 +446,12 @@ private:
             }
             if (dest_vport_nbo == kRudpVPortNbo) {
                 if (const auto receiver = g_rudp_receiver.load()) {
+                    receiver(from.sin_addr.s_addr, from.sin_port, payload, payload_size);
+                }
+                continue;
+            }
+            if (dest_vport_nbo == kBotsVPortNbo) {
+                if (const auto receiver = g_bots_receiver.load()) {
                     receiver(from.sin_addr.s_addr, from.sin_port, payload, payload_size);
                 }
                 continue;
@@ -999,6 +1008,15 @@ void SetP2PRudpReceiver(P2PRudpReceiver receiver) {
 
 int P2PRudpSendTo(const void* data, u32 len, u32 dest_addr, u16 dest_port) {
     return P2PTransport::Instance().SendFrame(kRudpVPortNbo, kRudpVPortNbo, data, len, dest_addr,
+                                              dest_port);
+}
+
+void SetP2PBotsReceiver(P2PRudpReceiver receiver) {
+    g_bots_receiver.store(receiver);
+}
+
+int P2PBotsSendTo(const void* data, u32 len, u32 dest_addr, u16 dest_port) {
+    return P2PTransport::Instance().SendFrame(kBotsVPortNbo, kBotsVPortNbo, data, len, dest_addr,
                                               dest_port);
 }
 

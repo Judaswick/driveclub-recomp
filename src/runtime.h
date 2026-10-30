@@ -74,6 +74,27 @@ const char *runtime_benchmark_guest_arg(void);
 int runtime_benchmark_marker(const char *guest);
 void runtime_benchmark_flip(void);
 void runtime_benchmark_note_mods(const char *dir);
+/* Private lobby championships (runtime_championship.c): the next race's lobby settings, applied (and with autostart
+ * started) on the game's thread once the lobby is idle. */
+void runtime_championship_set_race(const unsigned char *block, int autostart);
+void runtime_championship_frame(void);
+/* Bots in private lobby races: count and whether this game hosts (np_handler.cpp), and the entrant hooks (probe.c). */
+void runtime_bots_set(int count, int host);
+int runtime_bots_count(void);
+int runtime_bots_is_host(void);
+/* Bots kept the same in every game (runtime_botsync.c): the host's states out, the guests' in, and the frame. */
+size_t runtime_botsync_capture(void *out, size_t cap);
+void runtime_botsync_receive(const void *data, size_t len);
+void runtime_botsync_frame(int lobby_state, int is_host);
+void runtime_botsync_set_local(const char *name);
+ABI void runtime_bots_entrant_hook(void *setup, int32_t a, const char *kind, int32_t vehicle, void *livery,
+                                   int32_t flags, float skill, int64_t s0, int64_t s1, int64_t s2, int64_t s3,
+                                   int64_t s4, int64_t s5, int64_t s6);
+ABI void runtime_bots_done_hook(void *setup, int32_t arg);
+/* AI difficulty for every race (the online menu): its name, a step up or down, and the hook on the game's calls. */
+const char *runtime_ai_difficulty_name(void);
+void runtime_ai_difficulty_step(int dir);
+ABI void runtime_ai_difficulty_hook(void *setup, int32_t difficulty);
 int runtime_file_mount(const char *guest, const char *host);
 void runtime_file_unmount(const char *guest);
 int runtime_file_translate(const char *guest, char *out, size_t size);

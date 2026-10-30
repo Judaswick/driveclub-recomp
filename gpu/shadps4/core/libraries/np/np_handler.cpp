@@ -3,12 +3,16 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstring>
 #include <cstdlib>
+#include <deque>
 #include <map>
+#include <mutex>
 #include <sstream>
 #include <thread>
+#include <vector>
 #include <httplib.h>
 #include "common/elf_info.h"
 #include "common/logging/log.h"
@@ -82,8 +86,19 @@ bool ResolveLocalPeer(std::string_view online_id, u32* out_addr, u16* out_port) 
 }
 
 void StartLocalPresencePoll();
+void StartChampionshipPoll();
+void StartBotSync();
+void SetBotPeers(const std::string& names);
 
 extern "C" void bbgpu_overlay_note(const char* text_utf8); // the port's overlay (gpu/shim/bbgpu.cpp)
+extern "C" uintptr_t runtime_image_base;
+extern "C" void runtime_championship_set_race(const unsigned char* block, int autostart); // src/runtime_championship.c
+extern "C" void runtime_bots_set(int count, int host);          // src/runtime_championship.c
+extern "C" int runtime_bots_count(void);
+extern "C" int runtime_bots_is_host(void);
+extern "C" size_t runtime_botsync_capture(void* out, size_t cap); // src/runtime_botsync.c
+extern "C" void runtime_botsync_receive(const void* data, size_t len);
+extern "C" void runtime_botsync_set_local(const char* name);
 
 void StartLocalPeerDirectory() {
     namespace Stubs = NpSignaling::Stubs;
@@ -122,8 +137,207 @@ void StartLocalPeerDirectory() {
         }
     }).detach();
     StartLocalPresencePoll();
+    StartChampionshipPoll();
+    StartBotSync();
 }
 
+// Championships in a private lobby. The game's private lobby runs one race at a time from a settings
+// block (guest 0x8018c31c0, 60 bytes: mode, location, track, laps, time of day, weather, ...) that
+// the lobby compares with its copy every frame and sends to the guests when it changed. The host
+// sets up each race in the lobby as usual and F2 adds it to its championship on the co-op server;
+// F4 starts (or stops) it. While it runs the server says which race is on (it moves on when the
+// host's stats of a finished event arrive) and this writes that race's block back into the lobby.
+// bbnet_championship_command comes from the overlay's online menu.
+// Commands: 1 add the lobby's race, 2 start/stop, 3 one bot more, 4 XP boost, 5 random championship, 6 one bot fewer.
+std::mutex g_commands_mutex;
+std::deque<int> g_commands;
+// What the online menu shows, from the co-op server's last answers (-1: not known yet).
+std::atomic<int> g_xp_boost{-1}, g_champ_races{0}, g_champ_race{0}, g_champ_active{0};
+
+int NextCommand() {
+    std::lock_guard lock(g_commands_mutex);
+    if (g_commands.empty()) {
+        return 0;
+    }
+    const int command = g_commands.front();
+    g_commands.pop_front();
+    return command;
+}
+constexpr uintptr_t kLobbySettings = 0x18c31c0;
+constexpr size_t kLobbySettingsSize = 60;
+
+std::string LobbySettingsHex() {
+    static const char digits[] = "0123456789abcdef";
+    std::string hex;
+    const auto* block = reinterpret_cast<const unsigned char*>(runtime_image_base + kLobbySettings);
+    for (size_t i = 0; i < kLobbySettingsSize; ++i) {
+        hex += digits[block[i] >> 4];
+        hex += digits[block[i] & 15];
+    }
+    return hex;
+}
+
+// The race's block to the runtime, which applies it on the game's thread once the lobby is idle.
+void QueueLobbySettings(const std::string& hex, bool autostart) {
+    if (hex.size() != kLobbySettingsSize * 2) {
+        runtime_championship_set_race(nullptr, 0);
+        return;
+    }
+    unsigned char bytes[kLobbySettingsSize];
+    for (size_t i = 0; i < kLobbySettingsSize; ++i) {
+        bytes[i] = static_cast<unsigned char>(std::stoi(hex.substr(i * 2, 2), nullptr, 16));
+    }
+    runtime_championship_set_race(bytes, autostart ? 1 : 0);
+    LOG_INFO(NpHandler, "championship: next race queued ({}{})", hex, autostart ? ", starts by itself" : "");
+}
+// Bots kept the same in every game (src/runtime_botsync.c): each game sends the states of the bots it is in
+// charge of (the host: those no player is close to) ~50 times a second to the lobby's other players over the
+// P2P transport (own virtual port), and hands what it gets to the runtime. The other players come from the co-op server with the bot count; their addresses from its P2P
+// directory, looked up again every 5 s.
+std::mutex g_bot_peers_mutex;
+std::string g_bot_peer_names;
+
+void SetBotPeers(const std::string& names) {
+    std::lock_guard lock(g_bot_peers_mutex);
+    g_bot_peer_names = names;
+}
+
+void StartBotSync() {
+    runtime_botsync_set_local(LocalNpName().c_str());
+    Net::SetP2PBotsReceiver([](u32, u16, const u8* data, size_t len) { runtime_botsync_receive(data, len); });
+    std::thread([] {
+        std::vector<std::pair<u32, u16>> peers;
+        std::string resolved_for;
+        auto last_resolve = std::chrono::steady_clock::now() - std::chrono::seconds(10);
+        std::vector<unsigned char> packet(16384);
+        for (;;) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            if (runtime_bots_count() <= 0) {
+                continue;
+            }
+            std::string names;
+            {
+                std::lock_guard lock(g_bot_peers_mutex);
+                names = g_bot_peer_names;
+            }
+            const auto now = std::chrono::steady_clock::now();
+            if (names != resolved_for || now - last_resolve > std::chrono::seconds(5)) {
+                peers.clear();
+                std::istringstream list(names);
+                for (std::string name; std::getline(list, name, ',');) {
+                    u32 addr = 0;
+                    u16 port = 0;
+                    if (!name.empty() && ResolveLocalPeer(name, &addr, &port)) {
+                        peers.emplace_back(addr, port);
+                    }
+                }
+                resolved_for = names;
+                last_resolve = now;
+            }
+            const size_t n = runtime_botsync_capture(packet.data(), packet.size());
+            if (!n) {
+                continue;
+            }
+            for (const auto& [addr, port] : peers) {
+                Net::P2PBotsSendTo(packet.data(), static_cast<u32>(n), addr, port);
+            }
+        }
+    }).detach();
+}
+
+void StartChampionshipPoll() {
+    std::thread([] {
+        long long applied = -1; // seq of the settings last written
+        int ticks = 0;
+        for (;; ++ticks) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(250));
+            if (!runtime_image_base) {
+                continue;
+            }
+            const int command = NextCommand();
+            if (!command && ticks % 8) {
+                continue;
+            }
+            httplib::Client cli(CoopServerUrl());
+            cli.set_connection_timeout(3);
+            cli.set_read_timeout(3);
+            if (command == 4 || (!command && g_xp_boost < 0)) { // XP boost (the server counts our fame twice)
+                const auto boost = cli.Get(("/dccoop/xpboost/" + LocalNpName() + (command ? "?do=toggle" : "")).c_str());
+                if (boost && boost->status == 200) {
+                    g_xp_boost = boost->body.find(": on") != std::string::npos ? 1 : 0;
+                }
+                if (command) {
+                    bbgpu_overlay_note(boost && boost->status == 200 ? boost->body.c_str()
+                                                                     : "XP boost: the co-op server does not answer");
+                    continue;
+                }
+            }
+            // Bots: how many the private lobby has and whether this game hosts it.
+            const bool bot_command = command == 3 || command == 6;
+            const auto bots = cli.Get(("/dccoop/bots/" + LocalNpName() +
+                                       (command == 3 ? "?do=more" : command == 6 ? "?do=less" : "")).c_str());
+            if (bots && bots->status == 200) {
+                std::map<std::string, std::string> b;
+                std::istringstream lines(bots->body);
+                for (std::string line; std::getline(lines, line);) {
+                    const size_t eq = line.find('=');
+                    if (eq != std::string::npos) {
+                        b[line.substr(0, eq)] = line.substr(eq + 1);
+                    }
+                }
+                runtime_bots_set(std::atoi(b["count"].c_str()), b["host"] == "1");
+                SetBotPeers(b["peers"]);
+                if (bot_command) {
+                    bbgpu_overlay_note(b["note"].c_str());
+                }
+            } else if (bot_command) {
+                bbgpu_overlay_note("Bots: the co-op server does not answer");
+            }
+            if (bot_command) {
+                continue;
+            }
+            std::string path = "/dccoop/championship/" + LocalNpName();
+            if (command == 1) {
+                path += "?do=add&block=" + LobbySettingsHex();
+            } else if (command == 2) {
+                path += "?do=toggle";
+            } else if (command == 5) { // three random races from the lobby's settings, started at once
+                path += "?do=random&block=" + LobbySettingsHex();
+            }
+            const auto res = cli.Get(path.c_str());
+            if (!res || res->status != 200) {
+                if (command) {
+                    bbgpu_overlay_note("Championship: the co-op server does not answer");
+                }
+                continue;
+            }
+            std::map<std::string, std::string> v;
+            std::istringstream lines(res->body);
+            for (std::string line; std::getline(lines, line);) {
+                const size_t eq = line.find('=');
+                if (eq != std::string::npos) {
+                    v[line.substr(0, eq)] = line.substr(eq + 1);
+                }
+            }
+            const long long seq = std::atoll(v["seq"].c_str());
+            g_champ_races = std::atoi(v["races"].c_str());
+            g_champ_race = std::atoi(v["race"].c_str());
+            g_champ_active = v["active"] == "1" ? 1 : 0;
+            if (applied < 0 && !command) {
+                applied = seq; // a championship from before this game started is not written again
+                continue;
+            }
+            if (seq == applied && !command) {
+                continue;
+            }
+            applied = seq;
+            QueueLobbySettings(v["active"] == "1" ? v["block"] : std::string(), v["autostart"] == "1");
+            if (!v["note"].empty()) {
+                bbgpu_overlay_note(v["note"].c_str());
+            }
+        }
+    }).detach();
+}
 // Friends' presence. A console's PSN pushes each change (online, offline, what a friend is doing) to
 // the game's presence filter; the game reads the friend list only at start and learns everything
 // later from those events. Ask the co-op server every 5 s and raise the events for what changed.
@@ -2472,3 +2686,18 @@ void NpHandler::OnScoreReply(s32 user_id, ShadNet::CommandType cmd, u64 pkt_id,
 }
 
 } // namespace Libraries::Np
+
+// From the overlay's online menu (the commands: see g_commands).
+extern "C" void bbnet_championship_command(int command) {
+    std::lock_guard lock(Libraries::Np::g_commands_mutex);
+    Libraries::Np::g_commands.push_back(command);
+}
+
+// For the online menu: XP boost (-1 not known yet), championship races set, the race on (1-based) and whether
+// it runs.
+extern "C" void bbnet_online_state(int* xp_boost, int* races, int* race, int* active) {
+    *xp_boost = Libraries::Np::g_xp_boost;
+    *races = Libraries::Np::g_champ_races;
+    *race = Libraries::Np::g_champ_race;
+    *active = Libraries::Np::g_champ_active;
+}

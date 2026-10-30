@@ -16,8 +16,21 @@ WindowSDL::WindowSDL(s32 width_, s32 height_, const char* title) : width{width_}
     }
     SDL_PropertiesID props = SDL_CreateProperties();
     SDL_SetStringProperty(props, SDL_PROP_WINDOW_CREATE_TITLE_STRING, title);
-    SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_X_NUMBER, SDL_WINDOWPOS_CENTERED);
-    SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_Y_NUMBER, SDL_WINDOWPOS_CENTERED);
+    // BB_DISPLAY=<n>: the window opens (and goes full screen) on the n-th monitor (1 = first), so two games on
+    // one PC can each have their own screen.
+    int position = SDL_WINDOWPOS_CENTERED;
+    if (const char* wanted = std::getenv("BB_DISPLAY"); wanted && std::atoi(wanted) > 0) {
+        int count = 0;
+        SDL_DisplayID* displays = SDL_GetDisplays(&count);
+        const int index = std::atoi(wanted) - 1;
+        if (displays && index < count) {
+            position = SDL_WINDOWPOS_CENTERED_DISPLAY(displays[index]);
+            LOG_INFO(Frontend, "Window on display {} of {}", index + 1, count);
+        }
+        SDL_free(displays);
+    }
+    SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_X_NUMBER, position);
+    SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_Y_NUMBER, position);
     SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_WIDTH_NUMBER, width_);
     SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_HEIGHT_NUMBER, height_);
     SDL_SetBooleanProperty(props, SDL_PROP_WINDOW_CREATE_RESIZABLE_BOOLEAN, true);

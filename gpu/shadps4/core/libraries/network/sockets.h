@@ -241,5 +241,8 @@ int P2PMatching2RecvFrom(void* buf, u32 len, u32* from_addr, u16* from_port);
 using P2PRudpReceiver = void (*)(u32 from_addr, u16 from_port, const u8* data, size_t len);
 void SetP2PRudpReceiver(P2PRudpReceiver receiver);
 int P2PRudpSendTo(const void* data, u32 len, u32 dest_addr, u16 dest_port);
+// Bot states in private lobby races, on their own virtual port (np_handler.cpp).
+void SetP2PBotsReceiver(P2PRudpReceiver receiver);
+int P2PBotsSendTo(const void* data, u32 len, u32 dest_addr, u16 dest_port);
 
 } // namespace Libraries::Net
