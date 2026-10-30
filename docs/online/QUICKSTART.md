@@ -32,8 +32,9 @@ online status work. Public matchmaking and ghosts do not yet. Details: [README.m
    choose one, then press Play. Its first entry searches again. Or type the host's IP address under
    **Host's IP address**.
 
-A server can also list other servers: a host sets `"list_on": "<address of a friend's server>"` under `"server"` in
-`server\config.json` (and a name under `"name"`), and everyone who finds that friend's server finds this one too.
+A server can also list other servers: under **Host a session** the host types a **Server name** and, under **List my
+server on**, the address of a friend's server (several separated by commas); everyone who finds that friend's server
+finds this one too.
 A list server for everyone (for example one that is always on) goes into the launcher's `launcher.ini` as
 `online_lists=<address>`.
 3. Join the other player's session from the friends list, or invite them to a private lobby, then start an event.
