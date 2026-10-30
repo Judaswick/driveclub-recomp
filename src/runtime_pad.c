@@ -697,7 +697,12 @@ static LONG WINAPI wp_handler(EXCEPTION_POINTERS *e) {
         for (LONG i=0;i<n && i<128;++i) if (seen[i]==rip) { found=1; break; }
         if (!found && n<128 && InterlockedCompareExchange(&count,n+1,n)==n) {
             seen[n]=rip;
-            printf("Watch: pad buffer accessed by guest +0x%llx (thread %lu)\n",(unsigned long long)(rip-runtime_image_base),GetCurrentThreadId());
+            printf("Watch: pad buffer accessed by guest +0x%llx (thread %lu); stack:",(unsigned long long)(rip-runtime_image_base),GetCurrentThreadId());
+            /* the guest return addresses on the stack, to find the callers */
+            const uintptr_t *sp=(const uintptr_t *)e->ContextRecord->Rsp;
+            for (int i=0,shown=0;i<256 && shown<8;++i)
+                if (sp[i]>=runtime_image_base && sp[i]<runtime_image_base+0x1600000) { printf(" +0x%llx",(unsigned long long)(sp[i]-runtime_image_base)); ++shown; }
+            printf("\n");
         }
     }
     e->ContextRecord->Dr6=0;

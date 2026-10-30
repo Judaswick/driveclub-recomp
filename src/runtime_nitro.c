@@ -84,6 +84,18 @@ static int heap(uint64_t v) { return v >= HEAP_LO && v < HEAP_HI; }
 static float push_charge = 1.0f;
 static volatile int32_t push_car, push_firing; /* for the overlay: a pushed car is driven, and it is firing now */
 
+/* The vehicle state's KERSCharge getter (guest 0xc4c660, replaced in probe.c): the game's own value is
+ * *(*(this->vtable[0x350](this) + 8) + 0xd04); for a car we push, our charge instead, so the game's boost gauge
+ * runs down and fills like the Wombat's. */
+typedef ABI uint64_t (*vstate_fn)(void *self);
+ABI float runtime_nitro_charge_hook(void *self) {
+    const uint64_t x = ((vstate_fn)(*(uint64_t **)self)[0x350 / 8])(self);
+    const float own = *(const float *)(*(const uint64_t *)(x + 8) + 0xd04);
+    static int logged;
+    if (!logged++) { printf("Nitro: the game asks for the boost charge (gauge)\n"); fflush(stdout); }
+    return __atomic_load_n(&push_car, __ATOMIC_ACQUIRE) ? push_charge : own;
+}
+
 /* For the overlay's bar: 0 when there is none to draw, else the charge (0..1), whether it fires and whether it is
  * unlimited. */
 int runtime_nitro_state(float *charge, int *firing, int *unlimited) {
@@ -112,19 +124,18 @@ static void push(uint32_t buttons, uint64_t begin, int count) {
     const uint64_t g = *(const uint64_t *)(runtime_image_base + 0x1911100);
     const uint64_t holder = g ? *(const uint64_t *)(g + 0x6c8) : 0; /* G is not on the guest heap */
     const uint64_t vehicle = heap(holder) ? *(const uint64_t *)(holder + 0x838) : 0;
-    __atomic_store_n(&push_car, 0, __ATOMIC_RELEASE);
-    __atomic_store_n(&push_firing, 0, __ATOMIC_RELEASE);
-    if (!heap(vehicle)) { push_charge = 1.0f; return; } /* no car: the next race starts full */
+    /* push_car is read by the gauge on another thread: it only changes when the car does */
+    if (!heap(vehicle)) { push_charge = 1.0f; __atomic_store_n(&push_car, 0, __ATOMIC_RELEASE); return; }
     const uint64_t a = *(const uint64_t *)(vehicle - 0x200 + 0x3d8);
     const uint64_t b = heap(a) ? *(const uint64_t *)(a + 0xb8) : 0;
     const uint64_t def = heap(b) ? *(const uint64_t *)(b + 0x18) : 0;
-    if (def < begin || def >= begin + (uint64_t)count * VDEF_SIZE || (def - begin) % VDEF_SIZE) return;
     const int unlimited = runtime_nitro_enabled() == 2;
-    /* the four boost cars drive themselves; unlimited, they get the push as well (their own charge runs out) */
-    if (original[(def - begin) / VDEF_SIZE] && !unlimited) return;
     float *b0 = body_of(vehicle, 0), *b1 = body_of(vehicle, 1);
-    if (!b0 || dt <= 0) return;
-    __atomic_store_n(&push_car, 1, __ATOMIC_RELEASE);
+    /* the four boost cars drive themselves; unlimited, they get the push as well (their own charge runs out) */
+    const int ours = def >= begin && def < begin + (uint64_t)count * VDEF_SIZE && !((def - begin) % VDEF_SIZE) && b0 &&
+                     (!original[(def - begin) / VDEF_SIZE] || unlimited);
+    __atomic_store_n(&push_car, ours, __ATOMIC_RELEASE);
+    if (!ours || dt <= 0) { __atomic_store_n(&push_firing, 0, __ATOMIC_RELEASE); return; }
     if (unlimited) push_charge = 1.0f;
     const float *fwd = b0 + 0x190 / 4, *vel = b0 + 0x230 / 4;
     const float speed = sqrtf(vel[0] * vel[0] + vel[1] * vel[1] + vel[2] * vel[2]);
