@@ -6,6 +6,7 @@
 // SPDX-FileCopyrightText: Copyright 2024-2026 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <unordered_map>
@@ -34,6 +35,19 @@ namespace VideoCore {
 
 static constexpr u64 PageShift = 12;
 static constexpr u64 NumFramesBeforeRemoval = 32;
+
+// One texture whose use the runtime watches (src/runtime_nitro.c: the boost gauge, to know the HUD is drawn): its
+// guest address, and when a draw last looked it up (steady clock, microseconds).
+static std::atomic<u64> watched_texture{0}, watched_texture_used_us{0};
+} // namespace VideoCore
+extern "C" void bbgpu_watch_texture(unsigned long long address) { VideoCore::watched_texture = address; }
+extern "C" unsigned long long bbgpu_watched_texture_age_us(void) {
+    const u64 now = std::chrono::duration_cast<std::chrono::microseconds>(
+                        std::chrono::steady_clock::now().time_since_epoch()).count();
+    const u64 used = VideoCore::watched_texture_used_us.load(std::memory_order_relaxed);
+    return used ? now - used : ~0ull;
+}
+namespace VideoCore {
 
 TextureCache::TextureCache(const Vulkan::Instance& instance_, Vulkan::Scheduler& scheduler_,
                            Vulkan::Runtime& runtime_, AmdGpu::Liverpool* liverpool_,
@@ -743,6 +757,11 @@ ImageId TextureCache::FindImage(ImageDesc& desc, bool exact_fmt) {
     BB_PIPE_CHECK("TextureCache::FindImage");
     const auto& info = desc.info;
     ASSERT(info.guest_address != 0);
+    if (info.guest_address == watched_texture.load(std::memory_order_relaxed)) {
+        watched_texture_used_us.store(std::chrono::duration_cast<std::chrono::microseconds>(
+                                          std::chrono::steady_clock::now().time_since_epoch()).count(),
+                                      std::memory_order_relaxed);
+    }
 
     std::scoped_lock lock{mutex};
 
