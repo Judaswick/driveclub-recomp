@@ -97,6 +97,16 @@ void runtime_nitro_frame(uint32_t buttons);
 extern volatile uint8_t runtime_faceoffs_on;
 int runtime_faceoffs_enabled(void);
 void runtime_faceoffs_toggle(void);
+int runtime_objectives_enabled(void);
+void runtime_objectives_toggle(void);
+ABI void runtime_race_config_hook(uint8_t *config);
+/* Objectives in lobby races (runtime_objectives.c); the player's car (runtime_nitro.c), speeds in m/s. */
+int runtime_player_car(float *speed, float *top);
+void runtime_objectives_race(const char *track);
+ABI void runtime_objectives_position(int place, int total);
+ABI void runtime_objectives_hud(void);
+void runtime_objectives_frame(void);
+int runtime_objectives_view(char text[3][64], char progress[3][32], int state[3], int *over);
 /* Bots in private lobby races: count and whether this game hosts (np_handler.cpp), and the entrant hooks (probe.c). */
 void runtime_bots_set(int count, int host);
 int runtime_bots_count(void);

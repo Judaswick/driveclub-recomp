@@ -66,6 +66,9 @@ extern "C" void runtime_nitro_step(int dir);
 extern "C" int runtime_nitro_state(float* charge, int* firing, int* unlimited);
 extern "C" int runtime_faceoffs_enabled(void); // src/runtime_faceoffs.c
 extern "C" void runtime_faceoffs_toggle(void);
+extern "C" int runtime_objectives_enabled(void);
+extern "C" int runtime_objectives_view(char text[3][64], char progress[3][32], int state[3], int* over);
+extern "C" void runtime_objectives_toggle(void);
 extern "C" const unsigned char bb_font_ttf[];
 extern "C" const unsigned char bb_font_ttf_end[];
 
@@ -123,7 +126,7 @@ std::atomic<bool> mouse_capture_requested{false};
 std::atomic<bool> online_open{false};
 int online_row = 0;
 
-enum OnlineRow { RowNitro, RowFaceOffs, RowBots, RowDifficulty, RowXp, RowAdd, RowChampionship, RowRandom, RowClose, RowCount };
+enum OnlineRow { RowNitro, RowFaceOffs, RowObjectives, RowBots, RowDifficulty, RowXp, RowAdd, RowChampionship, RowRandom, RowClose, RowCount };
 
 // Left/right (dir -1/+1) or Cross (dir 0) on a row of the online menu.
 void OnlineAct(int row, int dir) {
@@ -140,6 +143,13 @@ void OnlineAct(int row, int dir) {
         runtime_faceoffs_toggle();
         note_text = runtime_faceoffs_enabled() ? "Face-offs on in every race, lobby races too, from the next race"
                                                : "Face-offs only where the game has them, from the next race";
+        note_until = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+        note_active = true;
+        break;
+    case RowObjectives:
+        runtime_objectives_toggle();
+        note_text = runtime_objectives_enabled() ? "Objectives in lobby races (place, speed, lead), from the next race"
+                                                 : "No objectives in lobby races, from the next race";
         note_until = std::chrono::steady_clock::now() + std::chrono::seconds(3);
         note_active = true;
         break;
@@ -164,6 +174,8 @@ void OnlineMenu(float scale) {
                   nitro_modes[runtime_nitro_enabled()]);
     std::snprintf(rows[RowFaceOffs], sizeof rows[0], "Face-offs in lobby races:  < %s >",
                   runtime_faceoffs_enabled() ? "On" : "Off");
+    std::snprintf(rows[RowObjectives], sizeof rows[0], "Objectives in lobby races:  < %s >",
+                  runtime_objectives_enabled() ? "On" : "Off");
     std::snprintf(rows[RowBots], sizeof rows[0], "Bots in the private lobby:  < %d >%s", runtime_bots_count(),
                   host ? "" : "  (the host sets them)");
     std::snprintf(rows[RowDifficulty], sizeof rows[0], "AI difficulty:  < %s >", runtime_ai_difficulty_name());
@@ -213,6 +225,68 @@ void NitroArc() {
     auto* draw = ImGui::GetBackgroundDrawList();
     draw->PathArcTo(centre, 125.1f * s, 137.0f * 3.14159265f / 180.0f, 242.5f * 3.14159265f / 180.0f, 64);
     draw->PathStroke(IM_COL32(160, 70, 190, 255), 0, 11.5f * s);
+}
+
+// Objectives in lobby races (src/runtime_objectives.c), drawn where and as the tour draws its objectives during a
+// race: three gold bars on the left, measured at 1080p from x 57 to 465, rows centred at y 627, 663 and 699, 30 px
+// high, a star in a dark circle at the left end. A goal that is met turns bright with a filled star, a missed one
+// grey once the race is over.
+bool ObjectivesShown() {
+    char text[3][64], progress[3][32];
+    int state[3], over;
+    return runtime_objectives_view(text, progress, state, &over) != 0;
+}
+
+void Star(ImDrawList* draw, ImVec2 c, float r, ImU32 colour) {
+    ImVec2 points[10];
+    for (int i = 0; i < 10; ++i) {
+        const float a = -3.14159265f / 2 + i * 3.14159265f / 5, rr = i % 2 ? r * 0.45f : r;
+        points[i] = ImVec2(c.x + std::cos(a) * rr, c.y + std::sin(a) * rr);
+    }
+    draw->AddConcavePolyFilled(points, 10, colour);
+}
+
+void ObjectivesPanel() {
+    char text[3][64], progress[3][32];
+    int state[3], over;
+    if (!runtime_objectives_view(text, progress, state, &over)) return;
+    ImGuiIO& io = ImGui::GetIO();
+    const float s = io.DisplaySize.y / 1080.0f;
+    auto* draw = ImGui::GetBackgroundDrawList();
+    const float left = 57.0f * s, right = 465.0f * s, h = 30.0f * s;
+    const ImU32 white = IM_COL32(245, 240, 225, 255), dark = IM_COL32(40, 32, 14, 230);
+    for (int i = 0; i < 3; ++i) {
+        const float cy = (627.0f + 36.0f * i) * s;
+        const ImVec2 a(left, cy - h * 0.5f), b(right, cy + h * 0.5f);
+        ImU32 base, fade, star;
+        if (state[i] > 0) {
+            base = IM_COL32(236, 190, 70, 235); fade = IM_COL32(236, 190, 70, 40); star = IM_COL32(255, 230, 120, 255);
+        } else if (state[i] < 0) {
+            base = IM_COL32(110, 110, 115, 210); fade = IM_COL32(110, 110, 115, 30); star = IM_COL32(150, 150, 155, 255);
+        } else {
+            base = IM_COL32(176, 138, 52, 215); fade = IM_COL32(176, 138, 52, 30); star = IM_COL32(120, 92, 30, 255);
+        }
+        draw->AddRectFilledMultiColor(a, b, base, fade, fade, base);
+        const ImVec2 c(left + h * 0.5f, cy);
+        draw->AddCircleFilled(c, h * 0.42f, dark, 24);
+        Star(draw, c, h * 0.30f, star);
+        const float size = 18.0f * s;
+        const ImVec2 ts = exit_body->CalcTextSizeA(size, FLT_MAX, 0, text[i]);
+        draw->AddText(exit_body, size, ImVec2(left + h * 1.15f, cy - ts.y * 0.5f), white, text[i]);
+        if (progress[i][0]) {
+            const ImVec2 ps = exit_body->CalcTextSizeA(size, FLT_MAX, 0, progress[i]);
+            draw->AddText(exit_body, size, ImVec2(right - ps.x - 12.0f * s, cy - ps.y * 0.5f),
+                          IM_COL32(245, 240, 225, 200), progress[i]);
+        }
+    }
+    if (over) {
+        int met = 0;
+        for (int i = 0; i < 3; ++i) met += state[i] > 0;
+        char line[48];
+        std::snprintf(line, sizeof line, "OBJECTIVES  %d / 3", met);
+        const float size = 22.0f * s;
+        draw->AddText(exit_heading, size, ImVec2(left, (627.0f - 15.0f) * s - size - 8.0f * s), white, line);
+    }
 }
 
 // Navigation in the online menu; true when the event was one of its keys or buttons.
@@ -1125,7 +1199,8 @@ bool HandleEvent(const SDL_Event& event) {
 
 bool Visible() {
     return initialized && (runtime_exit_captures() || menu_open || online_open || text_entry_active || note_active || trophy_active || BbSettings::Get().show_fps ||
-                           BbSettings::Get().show_pedals || picture_row >= 0 || NitroArcShown());
+                           BbSettings::Get().show_pedals || picture_row >= 0 || NitroArcShown() ||
+                           ObjectivesShown());
 }
 
 void Trophy(int id, int grade, const std::string& title, const std::string& description) {
@@ -1279,6 +1354,7 @@ void Render(vk::CommandBuffer cmdbuf, vk::ImageView view, vk::Extent2D extent) {
         }
     }
     NitroArc();
+    ObjectivesPanel();
     if (online_open) {
         OnlineMenu(scale);
     }
