@@ -250,6 +250,15 @@ static int translate(const char *guest,char *out,size_t size) {
     for (const char *p=buffer;(p=strstr(p,".."));p+=2)
         if ((p==buffer || p[-1]=='/') && (p[2]==0 || p[2]=='/')) return EACCES;
     if (runtime_benchmark_marker(buffer)) return ENOENT; /* benchmark mode progress (runtime_benchmark.c) */
+    { /* BB_PATH_TRACE=<text> (diagnostics): every distinct path the game asks for that contains the text */
+        static const char *trace; static int read_env; static uint64_t seen[4096]; static unsigned nseen;
+        if (!read_env) { read_env=1; trace=BB_DIAGNOSTIC_ENV("BB_PATH_TRACE"); }
+        if (trace && strstr(buffer,trace)) {
+            const uint64_t h=miss_hash(buffer,strlen(buffer)); int dup=0;
+            for (unsigned i=0;i<nseen;++i) if (seen[i]==h) { dup=1; break; }
+            if (!dup && nseen<4096) { seen[nseen++]=h; printf("Path: %s\n",buffer); }
+        }
+    }
     pthread_mutex_lock(&lock);
     size_t best=0; const Mount *m=NULL;
     for (size_t i=0;i<mount_count;++i) {
