@@ -45,7 +45,8 @@ right, select with Cross, close with Circle.
 
 | Row | What it does |
 |---|---|
-| Nitro for every car | Off, On or Unlimited, from the next race: hold X / Cross. On, the charge (turquoise bar above the speedometer) runs out in about 4 s and fills again when you let go; Unlimited never runs out (purple bar) |
+| Nitro for every car | Off, On or Unlimited, from the next race: hold X / Cross. On, the game's boost gauge runs empty in about 4 s and fills again when you let go; Unlimited never runs out (the gauge turns purple) |
+| Face-offs in lobby races | On (default) or Off, from the next race. On, private lobby races get the game's face-offs (cornering, average speed, drift ...) against your friends' best, even when they drove another car |
 | Bots | AI bots in the private lobby, set by the host (the same in every game, bumps included) |
 | AI difficulty | the game's own, Rookie ... Legend, for every race (online and offline) |
 | XP boost | double fame online |
