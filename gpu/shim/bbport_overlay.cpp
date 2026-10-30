@@ -61,8 +61,9 @@ extern "C" const char* runtime_ai_difficulty_name(void); // src/runtime_champion
 extern "C" void runtime_ai_difficulty_step(int dir);
 extern "C" int runtime_bots_count(void);
 extern "C" int runtime_bots_is_host(void);
-extern "C" int runtime_nitro_enabled(void); // src/runtime_nitro.c
-extern "C" void runtime_nitro_toggle(void);
+extern "C" int runtime_nitro_enabled(void); // src/runtime_nitro.c: 0 off, 1 on, 2 unlimited
+extern "C" void runtime_nitro_step(int dir);
+extern "C" int runtime_nitro_state(float* charge, int* firing, int* unlimited);
 extern "C" const unsigned char bb_font_ttf[];
 extern "C" const unsigned char bb_font_ttf_end[];
 
@@ -126,9 +127,10 @@ enum OnlineRow { RowNitro, RowBots, RowDifficulty, RowXp, RowAdd, RowChampionshi
 void OnlineAct(int row, int dir) {
     switch (row) {
     case RowNitro: // the caller holds imgui_mutex: the note is set here, not through Note()
-        runtime_nitro_toggle();
-        note_text = runtime_nitro_enabled() ? "Nitro on for every car (X), from the next race"
-                                            : "Nitro off, from the next race";
+        runtime_nitro_step(dir < 0 ? -1 : 1);
+        note_text = runtime_nitro_enabled() == 2 ? "Nitro unlimited for every car (X), from the next race"
+                    : runtime_nitro_enabled()    ? "Nitro on for every car (X), from the next race"
+                                                 : "Nitro off, from the next race";
         note_until = std::chrono::steady_clock::now() + std::chrono::seconds(3);
         note_active = true;
         break;
@@ -148,8 +150,9 @@ void OnlineMenu(float scale) {
     bbnet_online_state(&xp, &races, &race, &active);
     const bool host = runtime_bots_is_host() != 0;
     char rows[RowCount][96];
-    std::snprintf(rows[RowNitro], sizeof rows[0], "Nitro for every car (X):  %s",
-                  runtime_nitro_enabled() ? "On" : "Off");
+    static const char* const nitro_modes[] = {"Off", "On", "Unlimited"};
+    std::snprintf(rows[RowNitro], sizeof rows[0], "Nitro for every car (X):  < %s >",
+                  nitro_modes[runtime_nitro_enabled()]);
     std::snprintf(rows[RowBots], sizeof rows[0], "Bots in the private lobby:  < %d >%s", runtime_bots_count(),
                   host ? "" : "  (the host sets them)");
     std::snprintf(rows[RowDifficulty], sizeof rows[0], "AI difficulty:  < %s >", runtime_ai_difficulty_name());
@@ -179,6 +182,31 @@ void OnlineMenu(float scale) {
     const ImVec2 footer_size = exit_body->CalcTextSizeA(15 * scale, FLT_MAX, 0, footer);
     draw->AddText(exit_body, 15 * scale, ImVec2(pos.x + (w - footer_size.x) * 0.5f, pos.y + h - 36 * scale),
                   IM_COL32(155, 155, 160, 255), footer);
+}
+
+bool NitroShown() {
+    float c;
+    int f, u;
+    return runtime_nitro_state(&c, &f, &u) != 0;
+}
+
+// The nitro charge above the speedometer while a car with our push is driven: turquoise, purple when unlimited
+// (src/runtime_nitro.c). Brighter while it fires.
+void NitroBar(float scale) {
+    float charge = 0;
+    int firing = 0, unlimited = 0;
+    if (!runtime_nitro_state(&charge, &firing, &unlimited)) return;
+    ImGuiIO& io = ImGui::GetIO();
+    auto* draw = ImGui::GetBackgroundDrawList();
+    const float w = 200 * scale, h = 9 * scale;
+    const ImVec2 a(io.DisplaySize.x - w - 70 * scale, io.DisplaySize.y - 215 * scale), b(a.x + w, a.y + h);
+    const ImU32 fill = unlimited ? (firing ? IM_COL32(205, 120, 255, 255) : IM_COL32(150, 70, 230, 235))
+                                 : (firing ? IM_COL32(110, 255, 240, 255) : IM_COL32(40, 200, 190, 235));
+    draw->AddRectFilled(a, b, IM_COL32(0, 0, 0, 140), 3 * scale);
+    draw->AddRectFilled(a, ImVec2(a.x + w * charge, b.y), fill, 3 * scale);
+    if (firing) draw->AddRect(ImVec2(a.x - 2 * scale, a.y - 2 * scale), ImVec2(b.x + 2 * scale, b.y + 2 * scale), fill, 4 * scale, 0, 2 * scale);
+    const char* label = unlimited ? "NITRO  UNLIMITED" : "NITRO";
+    draw->AddText(exit_body, 15 * scale, ImVec2(a.x, a.y - 19 * scale), fill, label);
 }
 
 // Navigation in the online menu; true when the event was one of its keys or buttons.
@@ -1091,7 +1119,7 @@ bool HandleEvent(const SDL_Event& event) {
 
 bool Visible() {
     return initialized && (runtime_exit_captures() || menu_open || online_open || text_entry_active || note_active || trophy_active || BbSettings::Get().show_fps ||
-                           BbSettings::Get().show_pedals || picture_row >= 0);
+                           BbSettings::Get().show_pedals || picture_row >= 0 || NitroShown());
 }
 
 void Trophy(int id, int grade, const std::string& title, const std::string& description) {
@@ -1244,6 +1272,7 @@ void Render(vk::CommandBuffer cmdbuf, vk::ImageView view, vk::Extent2D extent) {
             trophy_active = !trophy_queue.empty();
         }
     }
+    NitroBar(scale);
     if (online_open) {
         OnlineMenu(scale);
     }
