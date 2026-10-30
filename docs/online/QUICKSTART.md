@@ -38,6 +38,17 @@ Club names are typed with the PC keyboard (Enter confirms, Esc cancels).
 
 To change your name or the host's IP: change it in the launcher.
 
+## Private lobby extras (PC keys, for the host)
+
+| Key | What it does |
+|---|---|
+| F1 | one AI bot more (the same in every game, bumps included) |
+| Shift+F1 | AI difficulty: the game's own, Rookie ... Legend (online and offline) |
+| F2 | add the lobby's race as set up to the championship |
+| F4 | start or stop the championship; from race 2 on each race starts by itself |
+| Shift+F4 | random championship: 3 random tracks, times of day and weather, starts at once |
+| Shift+F2 | XP boost on or off (double fame online) |
+
 ## If something goes wrong
 
 - **"Server not reachable":** is the VPN on? Has the host started the game with Host a session? Is the IP right? Did the
