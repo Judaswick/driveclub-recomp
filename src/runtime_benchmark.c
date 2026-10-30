@@ -274,15 +274,40 @@ static const char skip_intro_script[] =
     "  if page == \"boot.introvideo\" then Event.SendEvent(global, \"GUI\", \"SkipVideo\") end\n"
     "  if page == \"boot.start\" then Event.SendEvent(global, \"GUI\", \"BOOT_SEQ_DONE\"); done = true end\n"
     "end)\n"
-    "if %s then\n"
-    "  -- BB_TEST_AI_DRIVE: the game's AI drives the player's car in every race (automated tests).\n"
-    "  while true do\n"
-    "    AutoTest:WaitForEvent(global, \"RaceState\", function(data) return data == \"Racing\" end)\n"
-    "    DriveClubTestHelpers:SwitchToAI()\n"
-    "  end\n"
+    "local ai = %s\n"
+    "-- say(text) reaches the log through a file open the runtime prints (bb_lua/say:<text>).\n"
+    "local function say(text)\n"
+    "  loadfile(\"bb_lua/say:\" .. (string.gsub(string.sub(tostring(text), 1, 400), \"[^%%w%%s%%.:=_,%%-%%(%%)%%[%%]]\", \"?\")))\n"
     "end\n"
-    "while true do AutoTest:WaitForSeconds(60) end\n";
+    "-- BB_LUA_PROBE (diagnostics): Lua run at the start of every race and every 2 s for 30 s after.\n"
+    "local function probe(stage)\n"
+    "  local ok, err = pcall(function()\n"
+    "%s\n"
+    "  end)\n"
+    "  if not ok then say(\"probe error at \" .. stage .. \": \" .. tostring(err)) end\n"
+    "end\n"
+    "while true do\n"
+    "  AutoTest:WaitForEvent(global, \"RaceState\", function(data) return data == \"Racing\" end)\n"
+    "  probe(\"racing\")\n"
+    "  -- BB_TEST_AI_DRIVE: the game's AI drives the player's car in every race (automated tests).\n"
+    "  if ai then DriveClubTestHelpers:SwitchToAI() end\n"
+    "  for i = 1, 15 do AutoTest:WaitForSeconds(2); probe(\"tick\") end\n"
+    "end\n";
 static int skip_intro;
+
+/* The diagnostic Lua for the skip-intro script (BB_LUA_PROBE=<host file>), or "". */
+static char *read_probe(void) {
+    const char *path = BB_DIAGNOSTIC_ENV("BB_LUA_PROBE");
+    FILE *f = path && *path ? fopen(path, "rb") : NULL;
+    if (!f) return NULL;
+    fseek(f, 0, SEEK_END);
+    const long size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    char *text = size >= 0 ? calloc(1, (size_t)size + 1) : NULL;
+    if (text && fread(text, 1, (size_t)size, f) != (size_t)size) text[0] = 0;
+    fclose(f);
+    return text;
+}
 
 static void configure_skip_intro(const char *user) {
     const char *s = getenv("BB_SKIP_INTRO");
@@ -296,8 +321,10 @@ static void configure_skip_intro(const char *user) {
     if (!f) return;
     const char *ai = BB_DIAGNOSTIC_ENV("BB_TEST_AI_DRIVE");
     const int ai_drive = ai && !strcmp(ai, "1");
-    fprintf(f, skip_intro_script, ai_drive ? "true" : "false");
+    char *lua = read_probe();
+    fprintf(f, skip_intro_script, ai_drive ? "true" : "false", lua ? lua : "");
     fclose(f);
+    free(lua);
     runtime_file_add_mods(root);
     skip_intro = 1;
     printf("Runtime: the intro is skipped (BB_SKIP_INTRO)%s\n", ai_drive ? ", the AI drives (BB_TEST_AI_DRIVE)" : "");
@@ -384,6 +411,12 @@ static void set_guest_rain(void) {
 
 /* Called for every guest path the file system resolves; returns 1 for the script's progress markers. */
 int runtime_benchmark_marker(const char *guest) {
+    static const char lua_prefix[] = "/app0/bb_lua/say:";
+    if (skip_intro && !strncmp(guest, lua_prefix, sizeof(lua_prefix) - 1)) {
+        printf("Lua: %s\n", guest + sizeof(lua_prefix) - 1);
+        fflush(stdout);
+        return 1;
+    }
     if (phase == OFF || strncmp(guest, MARKER_PREFIX, sizeof(MARKER_PREFIX) - 1)) return 0;
     const char *name = guest + sizeof(MARKER_PREFIX) - 1;
     const double t = now_ms();

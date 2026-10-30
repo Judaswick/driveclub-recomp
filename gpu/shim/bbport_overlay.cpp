@@ -58,6 +58,8 @@ extern "C" const char* runtime_ai_difficulty_name(void); // src/runtime_champion
 extern "C" void runtime_ai_difficulty_step(int dir);
 extern "C" int runtime_bots_count(void);
 extern "C" int runtime_bots_is_host(void);
+extern "C" int runtime_nitro_enabled(void); // src/runtime_nitro.c
+extern "C" void runtime_nitro_toggle(void);
 extern "C" const unsigned char bb_font_ttf[];
 extern "C" const unsigned char bb_font_ttf_end[];
 
@@ -115,11 +117,18 @@ std::atomic<bool> mouse_capture_requested{false};
 std::atomic<bool> online_open{false};
 int online_row = 0;
 
-enum OnlineRow { RowBots, RowDifficulty, RowXp, RowAdd, RowChampionship, RowRandom, RowClose, RowCount };
+enum OnlineRow { RowNitro, RowBots, RowDifficulty, RowXp, RowAdd, RowChampionship, RowRandom, RowClose, RowCount };
 
 // Left/right (dir -1/+1) or Cross (dir 0) on a row of the online menu.
 void OnlineAct(int row, int dir) {
     switch (row) {
+    case RowNitro: // the caller holds imgui_mutex: the note is set here, not through Note()
+        runtime_nitro_toggle();
+        note_text = runtime_nitro_enabled() ? "Nitro on for every car (X), from the next race"
+                                            : "Nitro off, from the next race";
+        note_until = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+        note_active = true;
+        break;
     case RowBots: bbnet_championship_command(dir < 0 ? 6 : 3); break;
     case RowDifficulty: runtime_ai_difficulty_step(dir < 0 ? -1 : 1); break;
     case RowXp: bbnet_championship_command(4); break;
@@ -136,6 +145,8 @@ void OnlineMenu(float scale) {
     bbnet_online_state(&xp, &races, &race, &active);
     const bool host = runtime_bots_is_host() != 0;
     char rows[RowCount][96];
+    std::snprintf(rows[RowNitro], sizeof rows[0], "Nitro for every car (X):  %s",
+                  runtime_nitro_enabled() ? "On" : "Off");
     std::snprintf(rows[RowBots], sizeof rows[0], "Bots in the private lobby:  < %d >%s", runtime_bots_count(),
                   host ? "" : "  (the host sets them)");
     std::snprintf(rows[RowDifficulty], sizeof rows[0], "AI difficulty:  < %s >", runtime_ai_difficulty_name());

@@ -670,6 +670,11 @@ static ABI int32_t pad_close(int32_t handle) {
 static LONG WINAPI wp_handler(EXCEPTION_POINTERS *e) {
     if (e->ExceptionRecord->ExceptionCode!=EXCEPTION_SINGLE_STEP || !(e->ContextRecord->Dr6&1)) return EXCEPTION_CONTINUE_SEARCH;
     uintptr_t rip=(uintptr_t)e->ContextRecord->Rip;
+    if (rip<runtime_image_base || rip>=runtime_image_base+0x3400000) {
+        /* host code (a memcpy the game called): name the guest caller, the first return address on the stack */
+        const uintptr_t *sp=(const uintptr_t *)e->ContextRecord->Rsp;
+        for (int i=0;i<64;++i) if (sp[i]>=runtime_image_base && sp[i]<runtime_image_base+0x3400000) { rip=sp[i]; break; }
+    }
     if (rip>=runtime_image_base && rip<runtime_image_base+0x3400000) {
         static uintptr_t seen[128]; static volatile LONG count;
         LONG n=count; int found=0;
@@ -864,12 +869,27 @@ static ABI int32_t pad_read_state(int32_t handle, PadData *data) {
     pad_last_read=*data; pad_was_read=true;
 #ifdef _WIN32
     { static int armed; if (data->buttons && !armed && BB_DIAGNOSTIC_ENV("DR_WATCH")) { armed=1; watch_install(data); } }
+    /* BB_WATCH_FILE=<file> (diagnostics): when the file holds a new hex address, watch it the same way.
+     * BB_FFB_HOOK=1 (diagnostics): read the player's car simulation without a Logitech wheel. */
+    {
+        static const char *watch_file; static int checked; static unsigned long long watched; static unsigned polls;
+        if (!checked) { checked=1; watch_file=BB_DIAGNOSTIC_ENV("BB_WATCH_FILE"); if (BB_DIAGNOSTIC_ENV("BB_FFB_HOOK")) ffb_hook_install(); }
+        if (watch_file && ++polls%30==0) {
+            FILE *wf=fopen(watch_file,"rb");
+            if (wf) {
+                unsigned long long a=0;
+                if (fscanf(wf,"%llx",&a)==1 && a && a!=watched) { watched=a; watch_install((void *)(uintptr_t)a); }
+                fclose(wf);
+            }
+        }
+    }
 #endif
     { static unsigned nz; if (data->buttons && nz++<40) printf("Runtime: game read buttons 0x%x at %p from +0x%llx\n",data->buttons,(void *)data,(unsigned long long)((uintptr_t)__builtin_return_address(0)-runtime_image_base)); }
     pthread_mutex_unlock(&lock);
     game_options_apply();   /* the game's thread, outside the lock: the setters tell the rest of the game */
     camera_fov_apply();
     runtime_championship_frame();
+    runtime_nitro_frame();
     return 0;
 }
 /* Buffered read: the port samples once per call, so one entry is returned. */
