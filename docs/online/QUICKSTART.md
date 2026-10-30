@@ -38,16 +38,19 @@ Club names are typed with the PC keyboard (Enter confirms, Esc cancels).
 
 To change your name or the host's IP: change it in the launcher.
 
-## Private lobby extras (PC keys, for the host)
+## Online menu
 
-| Key | What it does |
+Press L3+R3 (both sticks; on the keyboard Left Ctrl+V) in the game. Choose with the d-pad, change with left and
+right, select with Cross, close with Circle.
+
+| Row | What it does |
 |---|---|
-| F1 | one AI bot more (the same in every game, bumps included) |
-| Shift+F1 | AI difficulty: the game's own, Rookie ... Legend (online and offline) |
-| F2 | add the lobby's race as set up to the championship |
-| F4 | start or stop the championship; from race 2 on each race starts by itself |
-| Shift+F4 | random championship: 3 random tracks, times of day and weather, starts at once |
-| Shift+F2 | XP boost on or off (double fame online) |
+| Bots | AI bots in the private lobby, set by the host (the same in every game, bumps included) |
+| AI difficulty | the game's own, Rookie ... Legend, for every race (online and offline) |
+| XP boost | double fame online |
+| Add the lobby's race | adds the race as set up in the lobby to the championship |
+| Start / stop the championship | from race 2 on each race starts by itself |
+| Random championship | 3 random tracks, times of day and weather, starts at once |
 
 ## If something goes wrong
 

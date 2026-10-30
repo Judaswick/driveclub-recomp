@@ -290,11 +290,6 @@ static SDL_Gamepad *current_gamepad(void) {
     }
     return gamepad;
 }
-/* The controller this game reads (SDL joystick id, 0 none), so the overlay's menu answers only to it. */
-uint32_t runtime_pad_gamepad_id(void) {
-    SDL_Gamepad *g=gamepad;
-    return g ? (uint32_t)SDL_GetGamepadID(g) : 0;
-}
 static void sample_buttons(PadData *d) {
     memset(d,0,sizeof(*d));
     d->left_x=d->left_y=d->right_x=d->right_y=128;
@@ -614,6 +609,10 @@ static void sample(PadData *d) {
     for (int i=0;i<4;++i) if (injected.stick[i]>=0) *axes[i]=(uint8_t)injected.stick[i];
     /* Modal actions use the same mapped logical buttons as the game. Sampling
      * must continue while captured to observe releases and neutral sticks. */
+    /* The online menu (overlay) first: L3+R3 opens it, and while open it takes the d-pad, Cross and Circle. */
+    if (bbgpu_online_menu_pad(d->buttons)) {
+        hold_after_capture=1; neutralize_pad(d); return;
+    }
     exit_suppressed=exit_input(d);
     if (exit_suppressed || bbgpu_overlay_captures_input()) {
         hold_after_capture=1; neutralize_pad(d); return;

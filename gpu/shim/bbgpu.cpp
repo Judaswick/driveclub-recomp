@@ -489,6 +489,7 @@ extern "C" int bbgpu_overlay_captures_input(void) {
     return BbOverlay::CapturesInput() ? 1 : 0;
 }
 extern "C" int bbgpu_exit_dialog_available(void) { return BbOverlay::ExitDialogAvailable(); }
+extern "C" int bbgpu_online_menu_pad(uint32_t buttons) { return BbOverlay::OnlinePad(buttons) ? 1 : 0; }
 extern "C" void bbgpu_mouse_stick_capture(int capture) { BbOverlay::RequestMouseCapture(capture!=0); }
 
 extern "C" void bbgpu_overlay_trophy(int id, int grade, const char* title_utf8, const char* description_utf8) {

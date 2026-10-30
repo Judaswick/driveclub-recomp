@@ -9,6 +9,7 @@ uintptr_t runtime_image_base;
 uint64_t runtime_image_size;
 const char *runtime_file_user_dir(void) { return "out/exit-pad-test-user"; }
 int bbgpu_overlay_captures_input(void) { return 0; }
+int bbgpu_online_menu_pad(uint32_t buttons) { (void)buttons; return 0; }
 void bbgpu_overlay_note(const char *s) { (void)s; }
 void bbgpu_mouse_stick_capture(int c) { (void)c; }
 int runtime_exit_captures(void) { return 0; }

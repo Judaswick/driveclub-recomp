@@ -43,6 +43,7 @@
  * "racing" and "tick" (every 5 s while racing); say(text) there goes to the log. A debugging aid: the game's
  * own print output does not reach the log, so script messages go through a marker open (say:<text>). */
 #define _GNU_SOURCE
+#include "../gpu/shim/bbport_diagnostics.h"
 #include "runtime.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -259,9 +260,52 @@ static void *watchdog(void *unused) {
     return NULL;
 }
 
+/* BB_SKIP_INTRO=1 (without a benchmark): a script that only skips the intro video and confirms the title page,
+ * then idles, so the game starts straight into the menus. */
+#define SKIP_INTRO_GUEST "scripts/autotest/lua/bb_skipintro.lua"
+static const char skip_intro_script[] =
+    "-- Written by DriveClubGame for BB_SKIP_INTRO (src/runtime_benchmark.c). Not game data.\n"
+    "require(\"class\")\n"
+    "require(\"autotesthelpers\")\n"
+    "require(\"driveclub_testhelpers\")\n"
+    "local done = false\n"
+    "DriveClubTestHelpers:AddAutoPageResponse(function(page)\n"
+    "  if done then return end\n"
+    "  if page == \"boot.introvideo\" then Event.SendEvent(global, \"GUI\", \"SkipVideo\") end\n"
+    "  if page == \"boot.start\" then Event.SendEvent(global, \"GUI\", \"BOOT_SEQ_DONE\"); done = true end\n"
+    "end)\n"
+    "if %s then\n"
+    "  -- BB_TEST_AI_DRIVE: the game's AI drives the player's car in every race (automated tests).\n"
+    "  while true do\n"
+    "    AutoTest:WaitForEvent(global, \"RaceState\", function(data) return data == \"Racing\" end)\n"
+    "    DriveClubTestHelpers:SwitchToAI()\n"
+    "  end\n"
+    "end\n"
+    "while true do AutoTest:WaitForSeconds(60) end\n";
+static int skip_intro;
+
+static void configure_skip_intro(const char *user) {
+    const char *s = getenv("BB_SKIP_INTRO");
+    if (!s || strcmp(s, "1")) return;
+    char root[640], dir[700], path[800];
+    snprintf(root, sizeof(root), "%s/skipintro", user);
+    snprintf(dir, sizeof(dir), "%s/scripts/autotest/lua", root);
+    if (!make_dirs(dir)) return;
+    snprintf(path, sizeof(path), "%s/bb_skipintro.lua.bin", dir);
+    FILE *f = fopen(path, "wb");
+    if (!f) return;
+    const char *ai = BB_DIAGNOSTIC_ENV("BB_TEST_AI_DRIVE");
+    const int ai_drive = ai && !strcmp(ai, "1");
+    fprintf(f, skip_intro_script, ai_drive ? "true" : "false");
+    fclose(f);
+    runtime_file_add_mods(root);
+    skip_intro = 1;
+    printf("Runtime: the intro is skipped (BB_SKIP_INTRO)%s\n", ai_drive ? ", the AI drives (BB_TEST_AI_DRIVE)" : "");
+}
+
 void runtime_benchmark_configure(const char *user) {
     const char *s = getenv("BB_BENCHMARK");
-    if (!s || !*s || !strcmp(s, "0") || !strcmp(s, "off")) return;
+    if (!s || !*s || !strcmp(s, "0") || !strcmp(s, "off")) { configure_skip_intro(user); return; }
     if (!parse(s)) { fprintf(stderr, "Benchmark: BB_BENCHMARK ignored\n"); return; }
     snprintf(user_root, sizeof(user_root), "%s/benchmark", user);
     char dir[700], path[800];
@@ -307,7 +351,7 @@ void runtime_benchmark_configure(const char *user) {
 
 /* The extra command-line argument for the game, or NULL. */
 const char *runtime_benchmark_guest_arg(void) {
-    return phase == OFF ? NULL : "-luaautotest=" SCRIPT_GUEST;
+    return phase != OFF ? "-luaautotest=" SCRIPT_GUEST : skip_intro ? "-luaautotest=" SKIP_INTRO_GUEST : NULL;
 }
 
 /* Precipitation: the game's race config is C++ data (GameConfig.dataInCPP is true; GameConfig.data in Lua is a

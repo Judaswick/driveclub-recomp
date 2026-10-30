@@ -39,6 +39,8 @@ void NotePresent();
 
 /// The menu is open or a text entry is shown: the game's input is held neutral.
 bool CapturesInput();
+/// The online menu (bots, AI difficulty, XP boost, championships) with the game's pad buttons; true while open.
+bool OnlinePad(u32 buttons);
 bool ExitDialogAvailable();
 void RequestMouseCapture(bool capture);
 void UpdateMouseCapture(SDL_Window* window);

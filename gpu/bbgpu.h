@@ -35,6 +35,9 @@ int bbgpu_text_input_begin(const char *initial_utf8, const char *prompt_utf8);
 int bbgpu_text_input_poll(char *out_utf8, uint64_t size);
 /* 1 while the in-game settings menu is open: the game's pad input is held neutral. */
 int bbgpu_overlay_captures_input(void);
+/* The online menu with the game's pad buttons: L3+R3 opens and closes it, the d-pad, Cross and Circle work it.
+ * 1 while it is open (the game's input is then held neutral). */
+int bbgpu_online_menu_pad(uint32_t buttons);
 /* Exit dialog can open only after its renderer is ready and without an IME dialog. */
 int bbgpu_exit_dialog_available(void);
 /* Requested mouse-stick mode; modal cursor ownership is applied on the window thread. */
