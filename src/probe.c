@@ -975,6 +975,38 @@ static void patch_call(unsigned char *image, uint64_t size, uint64_t site_at, ui
     memcpy(site + 1, &rel, 4);
     printf("%s: call at %#" PRIx64 " patched\n", name, site_at);
 }
+/* Face-offs in private lobby races (runtime_faceoffs.c): the race config handed to Lua takes faceOffs from the native
+ * config (mov eax, [r12+0x360]; lobby races have 2 = kNoFaceOffs). A thunk gives 0 (kAllFaceOffs) while the switch
+ * is on and the config's value otherwise. */
+static void patch_faceoffs(unsigned char *image, uint64_t size) {
+    static const unsigned char load[] = {0x41, 0x8b, 0x84, 0x24, 0x60, 0x03, 0x00, 0x00};
+    const uint64_t at = 0x13dcb6;
+    if (size < at + sizeof load || memcmp(image + at, load, sizeof load)) {
+        printf("Face-offs: config load at %#" PRIx64 " is not the expected one; not patched\n", at);
+        return;
+    }
+    unsigned char *thunk = allocate(page_size), *t = thunk;
+    const uintptr_t flag = (uintptr_t)&runtime_faceoffs_on;
+    *t++ = 0x48; *t++ = 0xb8; memcpy(t, &flag, 8); t += 8;  /* movabs rax, &runtime_faceoffs_on */
+    *t++ = 0x80; *t++ = 0x38; *t++ = 0x00;                 /* cmp byte [rax], 0 */
+    memcpy(t, load, sizeof load); t += sizeof load;        /* mov eax, [r12+0x360] */
+    *t++ = 0x74; *t++ = 0x02;                              /* je +2 */
+    *t++ = 0x31; *t++ = 0xc0;                              /* xor eax, eax */
+    *t++ = 0xc3;                                           /* ret */
+    protect(thunk, page_size, 5);
+    int64_t to = (int64_t)((uintptr_t)thunk - ((uintptr_t)image + at + 5));
+    if (to != (int32_t)to) { printf("Face-offs: thunk out of range; not patched\n"); return; }
+    int32_t rel = (int32_t)to;
+    image[at] = 0xe8; memcpy(image + at + 1, &rel, 4);     /* call thunk */
+    memset(image + at + 5, 0x90, 3);
+}
+/* BB_LUA_PRINT (diagnostics): the game's Lua print writes each argument with fputs to stdout, which reaches no log;
+ * this hook prints the text instead (the separators and the newline still go to the guest's fputc). */
+static ABI int lua_print_hook(const char *text, void *file) {
+    (void)file;
+    printf("LuaPrint: %.500s\n", text ? text : "(null)");
+    return 0;
+}
 /* BBPATCH2 (patches.py): the patches' image base, then byte writes at image offsets, applied
  * after relocation. A write may replace a whole base-relative pointer slot (60/90 FPS++ swap
  * function pointers): the patch holds the address at the patches' base, rebased here. */
@@ -1705,6 +1737,9 @@ int main(int argc, char **argv) {
     static const unsigned char kers_charge_fn[] = {0x55, 0x48, 0x89, 0xe5, 0x48, 0x8b, 0x07, 0xff, 0x90, 0x50, 0x03, 0x00, 0x00};
     patch_entry(image, size, 0xc4c660, kers_charge_fn, sizeof kers_charge_fn, (uintptr_t)runtime_nitro_charge_hook,
                 "Nitro gauge");
+    patch_faceoffs(image, size);
+    /* luaB_print's fputs of each argument */
+    if (BB_DIAGNOSTIC_ENV("BB_LUA_PRINT")) patch_call(image, size, 0xe3992d, 0x12409d0, (uintptr_t)lua_print_hook, "Lua print");
     /* Bots in private lobby races (runtime_championship.c): the lobby's entrant calls, then the AI after them. */
     patch_call(image, size, 0x37d3f7, 0x3ff0, (uintptr_t)runtime_bots_entrant_hook, "Bots");
     patch_call(image, size, 0x37d44e, 0x3da0, (uintptr_t)runtime_bots_done_hook, "Bots");

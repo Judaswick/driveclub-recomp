@@ -108,6 +108,10 @@ void runtime_nitro_step(int dir);
 int runtime_nitro_state(float *charge, int *firing, int *unlimited);
 ABI float runtime_nitro_charge_hook(void *self);
 void runtime_nitro_frame(uint32_t buttons);
+/* Face-offs in every race, lobby races too (runtime_faceoffs.c); the byte is read by the code probe.c patches. */
+extern volatile uint8_t runtime_faceoffs_on;
+int runtime_faceoffs_enabled(void);
+void runtime_faceoffs_toggle(void);
 /* Bots in private lobby races: count and whether this game hosts (np_handler.cpp), and the entrant hooks (probe.c). */
 void runtime_bots_set(int count, int host);
 int runtime_bots_count(void);

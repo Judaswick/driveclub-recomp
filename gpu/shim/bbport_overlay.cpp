@@ -69,6 +69,8 @@ extern "C" int runtime_bots_is_host(void);
 extern "C" int runtime_nitro_enabled(void); // src/runtime_nitro.c: 0 off, 1 on, 2 unlimited
 extern "C" void runtime_nitro_step(int dir);
 extern "C" int runtime_nitro_state(float* charge, int* firing, int* unlimited);
+extern "C" int runtime_faceoffs_enabled(void); // src/runtime_faceoffs.c
+extern "C" void runtime_faceoffs_toggle(void);
 extern "C" const unsigned char bb_font_ttf[];
 extern "C" const unsigned char bb_font_ttf_end[];
 
@@ -126,7 +128,7 @@ std::atomic<bool> mouse_capture_requested{false};
 std::atomic<bool> online_open{false};
 int online_row = 0;
 
-enum OnlineRow { RowNitro, RowBots, RowDifficulty, RowXp, RowAdd, RowChampionship, RowRandom, RowClose, RowCount };
+enum OnlineRow { RowNitro, RowFaceOffs, RowBots, RowDifficulty, RowXp, RowAdd, RowChampionship, RowRandom, RowClose, RowCount };
 
 // Left/right (dir -1/+1) or Cross (dir 0) on a row of the online menu.
 void OnlineAct(int row, int dir) {
@@ -136,6 +138,13 @@ void OnlineAct(int row, int dir) {
         note_text = runtime_nitro_enabled() == 2 ? "Nitro unlimited for every car (X), from the next race"
                     : runtime_nitro_enabled()    ? "Nitro on for every car (X), from the next race"
                                                  : "Nitro off, from the next race";
+        note_until = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+        note_active = true;
+        break;
+    case RowFaceOffs:
+        runtime_faceoffs_toggle();
+        note_text = runtime_faceoffs_enabled() ? "Face-offs on in every race, lobby races too, from the next race"
+                                               : "Face-offs only where the game has them, from the next race";
         note_until = std::chrono::steady_clock::now() + std::chrono::seconds(3);
         note_active = true;
         break;
@@ -158,6 +167,8 @@ void OnlineMenu(float scale) {
     static const char* const nitro_modes[] = {"Off", "On", "Unlimited"};
     std::snprintf(rows[RowNitro], sizeof rows[0], "Nitro for every car (X):  < %s >",
                   nitro_modes[runtime_nitro_enabled()]);
+    std::snprintf(rows[RowFaceOffs], sizeof rows[0], "Face-offs in lobby races:  < %s >",
+                  runtime_faceoffs_enabled() ? "On" : "Off");
     std::snprintf(rows[RowBots], sizeof rows[0], "Bots in the private lobby:  < %d >%s", runtime_bots_count(),
                   host ? "" : "  (the host sets them)");
     std::snprintf(rows[RowDifficulty], sizeof rows[0], "AI difficulty:  < %s >", runtime_ai_difficulty_name());

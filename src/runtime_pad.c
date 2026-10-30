@@ -1272,6 +1272,7 @@ static ABI int32_t pad_read_state(int32_t handle, PadData *data) {
     camera_fov_apply();
     runtime_championship_frame();
     runtime_nitro_frame(data->buttons);
+    runtime_faceoffs_enabled(); /* reads the saved choice once the user folder is known */
     return 0;
 }
 /* Buffered read: the port samples once per call, so one entry is returned. */
