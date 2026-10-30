@@ -1000,6 +1000,73 @@ static void patch_faceoffs(unsigned char *image, uint64_t size) {
     image[at] = 0xe8; memcpy(image + at + 1, &rel, 4);     /* call thunk */
     memset(image + at + 5, 0x90, 3);
 }
+/* Objectives in private lobby races (runtime_faceoffs.c, runtime_objectives.c): the config builder's first field load
+ * (eventID, mov rax, [r12+0x2f0], right after a call, so no scratch register is live) calls
+ * runtime_race_config_hook(config) first, which tells a lobby race (and its track) to the objectives. */
+static void patch_race_config(unsigned char *image, uint64_t size) {
+    static const unsigned char load[] = {0x49, 0x8b, 0x84, 0x24, 0xf0, 0x02, 0x00, 0x00};
+    const uint64_t at = 0x13d745;
+    if (size < at + sizeof load || memcmp(image + at, load, sizeof load)) {
+        printf("Objectives: config load at %#" PRIx64 " is not the expected one; not patched\n", at);
+        return;
+    }
+    unsigned char *thunk = allocate(page_size), *t = thunk;
+    const uintptr_t hook = (uintptr_t)runtime_race_config_hook;
+    *t++ = 0x48; *t++ = 0x83; *t++ = 0xec; *t++ = 0x08;   /* sub rsp, 8 (aligned for the call) */
+    *t++ = 0x4c; *t++ = 0x89; *t++ = 0xe7;                /* mov rdi, r12 */
+    *t++ = 0x48; *t++ = 0xb8; memcpy(t, &hook, 8); t += 8; /* movabs rax, hook */
+    *t++ = 0xff; *t++ = 0xd0;                             /* call rax */
+    *t++ = 0x48; *t++ = 0x83; *t++ = 0xc4; *t++ = 0x08;   /* add rsp, 8 */
+    memcpy(t, load, sizeof load); t += sizeof load;       /* mov rax, [r12+0x2f0] */
+    *t++ = 0xc3;                                          /* ret */
+    protect(thunk, page_size, 5);
+    int64_t to = (int64_t)((uintptr_t)thunk - ((uintptr_t)image + at + 5));
+    if (to != (int32_t)to) { printf("Objectives: thunk out of range; not patched\n"); return; }
+    int32_t rel = (int32_t)to;
+    image[at] = 0xe8; memcpy(image + at + 1, &rel, 4);    /* call thunk */
+    memset(image + at + 5, 0x90, 3);
+}
+/* The race HUD for the objectives: two OSD message handlers end in a tail jump to the text setter, which goes through
+ * a thunk that calls a hook first. SetPositionInfo ("POS 1/2") jumps to sprintf-like(text, "%d/%d", place, field):
+ * the hook gets place and field (edx, ecx). SetTime (the race time, every frame while the HUD shows) jumps to the
+ * string setter: the hook gets nothing and says the HUD is up. The argument registers are saved around the call and
+ * al (no vector arguments) is zero again for the varargs setter. */
+static void patch_hud_jump(unsigned char *image, uint64_t size, uint64_t at, uint64_t target, uintptr_t hook,
+                           int pass_place, const char *what) {
+    int32_t rel;
+    if (size < at + 5) return;
+    memcpy(&rel, image + at + 1, 4);
+    if (image[at] != 0xe9 || (int64_t)at + 5 + rel != (int64_t)target) {
+        printf("Objectives: %s jump at %#" PRIx64 " is not the expected one; not patched\n", what, at);
+        return;
+    }
+    unsigned char *thunk = allocate(page_size), *t = thunk;
+    const uintptr_t to = (uintptr_t)image + target;
+    static const unsigned char save[] = {0x57, 0x56, 0x52, 0x51, 0x41, 0x50, 0x41, 0x51}; /* push rdi rsi rdx rcx r8 r9 */
+    memcpy(t, save, sizeof save); t += sizeof save;
+    *t++ = 0x48; *t++ = 0x83; *t++ = 0xec; *t++ = 0x08;   /* sub rsp, 8: 6 pushes on the jump's entry, aligned */
+    if (pass_place) {
+        *t++ = 0x89; *t++ = 0xd7;                         /* mov edi, edx (place) */
+        *t++ = 0x89; *t++ = 0xce;                         /* mov esi, ecx (field) */
+    }
+    *t++ = 0x48; *t++ = 0xb8; memcpy(t, &hook, 8); t += 8; /* movabs rax, hook */
+    *t++ = 0xff; *t++ = 0xd0;                             /* call rax */
+    *t++ = 0x48; *t++ = 0x83; *t++ = 0xc4; *t++ = 0x08;   /* add rsp, 8 */
+    static const unsigned char restore[] = {0x41, 0x59, 0x41, 0x58, 0x59, 0x5a, 0x5e, 0x5f}; /* pop r9 r8 rcx rdx rsi rdi */
+    memcpy(t, restore, sizeof restore); t += sizeof restore;
+    *t++ = 0x31; *t++ = 0xc0;                             /* xor eax, eax */
+    *t++ = 0x49; *t++ = 0xbb; memcpy(t, &to, 8); t += 8;  /* movabs r11, target */
+    *t++ = 0x41; *t++ = 0xff; *t++ = 0xe3;                /* jmp r11 */
+    protect(thunk, page_size, 5);
+    int64_t d = (int64_t)((uintptr_t)thunk - ((uintptr_t)image + at + 5));
+    if (d != (int32_t)d) { printf("Objectives: thunk out of range; not patched\n"); return; }
+    rel = (int32_t)d;
+    memcpy(image + at + 1, &rel, 4);
+}
+static void patch_hud(unsigned char *image, uint64_t size) {
+    patch_hud_jump(image, size, 0x496acc, 0x273340, (uintptr_t)runtime_objectives_position, 1, "position text");
+    patch_hud_jump(image, size, 0x491461, 0x2718d0, (uintptr_t)runtime_objectives_hud, 0, "race time text");
+}
 /* BB_LUA_PRINT (diagnostics): the game's Lua print writes each argument with fputs to stdout, which reaches no log;
  * this hook prints the text instead (the separators and the newline still go to the guest's fputc). */
 static ABI int lua_print_hook(const char *text, void *file) {
@@ -1738,6 +1805,8 @@ int main(int argc, char **argv) {
     patch_entry(image, size, 0xc4c660, kers_charge_fn, sizeof kers_charge_fn, (uintptr_t)runtime_nitro_charge_hook,
                 "Nitro gauge");
     patch_faceoffs(image, size);
+    patch_race_config(image, size);
+    patch_hud(image, size);
     /* luaB_print's fputs of each argument */
     if (BB_DIAGNOSTIC_ENV("BB_LUA_PRINT")) patch_call(image, size, 0xe3992d, 0x12409d0, (uintptr_t)lua_print_hook, "Lua print");
     /* Bots in private lobby races (runtime_championship.c): the lobby's entrant calls, then the AI after them. */

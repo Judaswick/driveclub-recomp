@@ -207,6 +207,112 @@ static uint64_t now_us(void) {
     return (uint64_t)ts.tv_sec * 1000000 + (uint64_t)ts.tv_nsec / 1000;
 }
 
+/* The player's car for the lobby objectives (runtime_objectives.c): its speed now and its top speed, in m/s.
+ *
+ * The top speed is the Lua property TopSpeedMS of the car's actor object (vtable 0x16506a0): its state at +0x68,
+ * *(*(state) + 0xc8) the value, and *(*(state + 0x10) + 0xc) the speed (Speed). No pointer path from the vehicle to
+ * it held from one race to the next, so the objects are looked for in the guest heap around the vehicle (each car has
+ * one; they were within 32 MB of it) by a thread of their own, and the player's is the one whose speed is the
+ * vehicle's while it moves, clearly closer than any other's (else it is looked for again). Found once per car. */
+#define VEHICLE_ACTOR_VTABLE 0x16506a0
+#define ACTOR_SEARCH (48ull << 20)
+static volatile uint64_t actor_of_vehicle, actor_vehicle; /* the found object, and the vehicle it is for */
+static volatile int32_t actor_searching;
+static uint64_t actor_search_us; /* the last search began: another not before ACTOR_RETRY_US */
+#define ACTOR_RETRY_US 2000000
+
+static int actor_values(uint64_t actor, float *speed, float *top) {
+    if (!heap(actor) || *(const uint64_t *)actor != runtime_image_base + VEHICLE_ACTOR_VTABLE) return 0;
+    const uint64_t state = *(const uint64_t *)(actor + 0x68);
+    if (!heap(state)) return 0;
+    const uint64_t s0 = *(const uint64_t *)state, s2 = *(const uint64_t *)(state + 0x10);
+    if (!heap(s0) || !heap(s2)) return 0;
+    *top = *(const float *)(s0 + 0xc8);
+    *speed = *(const float *)(s2 + 0xc);
+    return *top > 15.0f && *top < 150.0f;
+}
+
+#ifdef _WIN32
+struct actor_search { uint64_t vehicle; float speed; };
+static void *actor_search_thread(void *arg) {
+    const struct actor_search s = *(struct actor_search *)arg;
+    free(arg);
+    const uint64_t want = runtime_image_base + VEHICLE_ACTOR_VTABLE;
+    uint64_t lo = s.vehicle > HEAP_LO + ACTOR_SEARCH ? s.vehicle - ACTOR_SEARCH : HEAP_LO;
+    const uint64_t hi = s.vehicle + ACTOR_SEARCH < HEAP_HI ? s.vehicle + ACTOR_SEARCH : HEAP_HI;
+    uint64_t best = 0;
+    float best_diff = 1e9f, second_diff = 1e9f; /* m/s */
+    int seen = 0;
+    while (lo < hi) {
+        MEMORY_BASIC_INFORMATION m;
+        if (!VirtualQuery((const void *)lo, &m, sizeof m)) break;
+        const uint64_t end = (uint64_t)m.BaseAddress + m.RegionSize;
+        if (m.State == MEM_COMMIT && (m.Protect & (PAGE_READWRITE | PAGE_READONLY | PAGE_EXECUTE_READWRITE)) &&
+            !(m.Protect & PAGE_GUARD)) {
+            const uint64_t *p = (const uint64_t *)lo, *e = (const uint64_t *)(end < hi ? end : hi);
+            for (; p < e; ++p) {
+                if (*p != want) continue;
+                float speed, top;
+                ++seen;
+                if (!actor_values((uint64_t)p, &speed, &top)) continue;
+                const float diff = fabsf(speed - s.speed);
+                if (diff < best_diff) { second_diff = best_diff; best_diff = diff; best = (uint64_t)p; }
+                else if (diff < second_diff) second_diff = diff;
+            }
+        }
+        lo = end;
+    }
+    /* only a clear match: cars side by side at the start go at nearly the same speed */
+    if (best_diff > 1.0f || second_diff < 2.5f) best = 0;
+    if (best) {
+        __atomic_store_n(&actor_of_vehicle, best, __ATOMIC_RELEASE);
+        __atomic_store_n(&actor_vehicle, s.vehicle, __ATOMIC_RELEASE);
+    }
+    printf("Objectives: %d car objects near the player's car, %s (%.1f m/s off, the next %.1f)\n", seen,
+           best ? "its own found" : "none clearly its own", best_diff, second_diff);
+    fflush(stdout);
+    __atomic_store_n(&actor_searching, 0, __ATOMIC_RELEASE);
+    return NULL;
+}
+#endif
+
+int runtime_player_car(float *speed, float *top) {
+    *speed = *top = 0.0f;
+    if (!runtime_image_base) return 0;
+    const uint64_t g = *(const uint64_t *)(runtime_image_base + 0x1911100);
+    const uint64_t holder = g ? *(const uint64_t *)(g + 0x6c8) : 0;
+    const uint64_t vehicle = heap(holder) ? *(const uint64_t *)(holder + 0x838) : 0;
+    if (!heap(vehicle)) return 0;
+    const float *b0 = body_of(vehicle, 0);
+    if (!b0) return 0;
+    const float *vel = b0 + 0x230 / 4;
+    *speed = sqrtf(vel[0] * vel[0] + vel[1] * vel[1] + vel[2] * vel[2]);
+    float actor_speed, actor_top;
+    if (__atomic_load_n(&actor_vehicle, __ATOMIC_ACQUIRE) == vehicle &&
+        actor_values(__atomic_load_n(&actor_of_vehicle, __ATOMIC_ACQUIRE), &actor_speed, &actor_top)) {
+        *top = actor_top;
+        return 1;
+    }
+#ifdef _WIN32
+    /* moving, so the speeds tell the cars apart: look for its object (once at a time) */
+    if (*speed > 8.0f && now_us() - actor_search_us > ACTOR_RETRY_US &&
+        !__atomic_exchange_n(&actor_searching, 1, __ATOMIC_ACQ_REL)) {
+        actor_search_us = now_us();
+        struct actor_search *s = malloc(sizeof *s);
+        pthread_t th;
+        if (s) {
+            s->vehicle = vehicle;
+            s->speed = *speed;
+            if (!pthread_create(&th, NULL, actor_search_thread, s)) pthread_detach(th);
+            else { free(s); __atomic_store_n(&actor_searching, 0, __ATOMIC_RELEASE); }
+        } else {
+            __atomic_store_n(&actor_searching, 0, __ATOMIC_RELEASE);
+        }
+    }
+#endif
+    return 1;
+}
+
 static void push(uint32_t buttons, uint64_t begin, int count) {
     static uint64_t last;
     const uint64_t t = now_us();
