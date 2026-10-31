@@ -165,6 +165,7 @@ int RunWpfBridge(int argc,wchar_t** argv) {
         if(changed==g_fps)ApplyFrameModeCameraDefault();
         // the server list: searched when Join is chosen and when its first entry ("Search again") is
         if((changed==g_online_row&&g_c[g_online_row].sel==2)||(changed==g_servers_row&&g_c[g_servers_row].sel==0))ShowServers(true);
+        if(changed==g_internet_row||changed==g_online_row)ShowInternetAddress();
         if(changed==g_aspect && g_c[g_aspect].sel>0){g_c[g_outres].sel=g_c[g_inres].sel=0;}
         if((changed==g_outres || changed==g_inres) && (g_c[g_outres].sel>0 || g_c[g_inres].sel>0)){
           if(g_aspect>=0)g_c[g_aspect].sel=0;

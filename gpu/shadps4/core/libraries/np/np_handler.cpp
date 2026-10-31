@@ -115,9 +115,21 @@ void StartLocalPeerDirectory() {
         .ensure_transport = Net::EnsureP2PTransport,
     });
     Stubs::SetPeerResolver(ResolveLocalPeer);
+    // Internet play (BB_INTERNET=1, the launcher's "Reachable from the internet"): the router forwards the P2P
+    // transport's UDP port to this PC over UPnP, so friends on the internet reach it at the router's address
+    // (the co-op server registers it from where the request comes). Taken back when the game ends.
+    static const bool internet = [] {
+        const char* e = std::getenv("BB_INTERNET");
+        return e && *e == '1';
+    }();
+    if (internet) {
+        Net::UPnPClient::Instance().SetP2PFeaturesEnabled(true);
+        Net::UPnPClient::Instance().Start();
+    }
     // Re-register now and then: the transport starts late and its port changes with each run.
     std::thread([] {
         u16 registered = 0;
+        static std::atomic<u16> mapped{0};
         for (;;) {
             std::this_thread::sleep_for(std::chrono::seconds(registered ? 30 : 2));
             if (!Net::P2PTransportIsReady()) {
@@ -125,6 +137,25 @@ void StartLocalPeerDirectory() {
             }
             const u16 port = Net::GetP2PConfiguredPort();
             Net::P2PRelaySetName(LocalNpName());
+            if (internet && port && mapped != port && Net::UPnPClient::Instance().WaitReady(5000)) {
+                if (Net::UPnPClient::Instance().IsAvailable()) {
+                    if (mapped) {
+                        Net::UPnPClient::Instance().RemoveMapping(mapped);
+                    }
+                    Net::UPnPClient::Instance().AddMapping(port);
+                    static const bool once = (std::atexit([] {
+                        if (mapped) {
+                            Net::UPnPClient::Instance().RemoveMapping(mapped);
+                        }
+                    }), true);
+                    (void)once;
+                    LOG_INFO(NpHandler, "Internet play: P2P port {} forwarded, router address {}", port,
+                             Net::UPnPClient::Instance().GetExternalIpString());
+                } else {
+                    LOG_WARNING(NpHandler, "Internet play: no router with UPnP found, P2P port {} not forwarded", port);
+                }
+                mapped = port;
+            }
             httplib::Client cli(CoopServerUrl());
             cli.set_connection_timeout(3);
             cli.set_read_timeout(3);
