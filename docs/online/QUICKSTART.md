@@ -37,6 +37,17 @@ server on**, the address of a friend's server (several separated by commas); eve
 finds this one too.
 A list server for everyone (for example one that is always on) goes into the launcher's `launcher.ini` as
 `online_lists=<address>`.
+
+## Over the internet, without a VPN
+
+1. In the router allow port sharing for your PC (FRITZ!Box: **Internet, Permit Access**, your PC, **Permit independent
+   port sharing**). The router needs a public IPv4 address: DS-Lite or carrier NAT connections cannot be reached.
+2. Double-click `Allow-Firewall-Internet.bat` once (every player).
+3. In the launcher turn on **Reachable from the internet** (host and friends). When the host plays, the server asks the
+   router to forward its port and the game's; **Your IP address** then shows the internet address (after the server's
+   first start) to give to friends, who type it under **Host's IP address**.
+
+Anyone who knows the address can join the server: give it only to friends.
 3. Join the other player's session from the friends list, or invite them to a private lobby, then start an event.
    Promoting a leader and kicking a player work too.
 

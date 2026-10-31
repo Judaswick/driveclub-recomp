@@ -4,15 +4,22 @@
 # driveclubsrv.exe is found.
 # Only from the home network and the VPNs people play over (Tailscale 100.64.0.0/10, Hamachi 25.0.0.0/8,
 # Radmin 26.0.0.0/8): nobody on the internet reaches the game or the server. Add more with -Allow.
-param([string]$Root = $PSScriptRoot, [string[]]$Allow = @())
+# -Internet (Allow-Firewall-Internet.bat): from any address, for play over the internet with port sharing on the router
+# (the launcher's "Reachable from the internet"). Anyone who knows the address can then reach the game and the server.
+param([string]$Root = $PSScriptRoot, [string[]]$Allow = @(), [switch]$Internet)
 
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
         [Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Start-Process powershell -Verb RunAs -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -Root `"$Root`""
+    $more = if ($Internet) { ' -Internet' } else { '' }
+    Start-Process powershell -Verb RunAs -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -Root `"$Root`"$more"
     exit
 }
 
 $remote = @('LocalSubnet', '100.64.0.0/10', '25.0.0.0/8', '26.0.0.0/8') + $Allow
+if ($Internet) {
+    $remote = @('Any')
+    Write-Host 'Internet play: the game and the server can be reached from any address.'
+}
 $game = Join-Path $Root 'runtime\DriveClubGame.exe'
 Get-NetFirewallRule -DisplayName 'DriveClub Online*' -ErrorAction SilentlyContinue | Remove-NetFirewallRule
 New-NetFirewallRule -DisplayName 'DriveClub Online (game UDP)' -Direction Inbound -Action Allow `
