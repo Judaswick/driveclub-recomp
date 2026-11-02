@@ -1465,8 +1465,10 @@ void BuildModel() {
                      L"Race with friends.\n"
                      L"\x2022 Off: the game runs as always.\n"
                      L"\x2022 Host: a private server starts on this PC. Give your friends your IP address on the LAN or VPN (Tailscale, Hamachi, Radmin).\n"
-                     L"\x2022 Join: you connect to a friend who hosts; you are asked for their IP address.",
-                     {L"Off", L"Host a session", L"Join a session"}, {"@online", "@online", "@online"}, 0);
+                     L"\x2022 Join: you connect to a friend who hosts; you are asked for their IP address.\n"
+                     L"\x2022 Public server: the community server everyone can join, without a VPN or port sharing (it relays the race traffic). "
+                     L"The online menu's championships, bots and standings need a server of your own.",
+                     {L"Off", L"Host a session", L"Join a session", L"Public server"}, {"@online", "@online", "@online", "@online"}, 0);
   g_online_ip_row = [&] {
     auto addresses = LocalAddresses();
     if (addresses.empty()) addresses.push_back(L"(no network found)");
