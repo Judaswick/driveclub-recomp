@@ -612,7 +612,11 @@ static bool exit_input(PadData *d) {
 static void sample(PadData *d) {
     sample_host(d);
     bbgpu_reflex_on_input_sampled();
-    if (bbgpu_overlay_captures_input()) { hold_after_capture=1; return; }
+    if (bbgpu_overlay_captures_input()) {
+        /* the online menu takes its keys while it is open (it is one of the overlay's captures) */
+        bbgpu_online_menu_pad(d->buttons|injected.buttons);
+        hold_after_capture=1; return;
+    }
     record_sample(d);
     read_inject();
     replay_sample(d);
