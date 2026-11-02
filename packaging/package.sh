@@ -68,7 +68,7 @@ mkdir -p "$OUT/server" "$OUT/online"
 cp -r "$SERVER_BIN"/. "$OUT/server/"
 cp docs/online/server-config.json "$OUT/server/config.json"
 cp docs/online/override-0.tss "$OUT/online/"
-cp docs/online/play/Allow-Firewall.bat docs/online/play/Allow-Firewall.ps1 docs/online/play/Allow-Firewall-Internet.bat "$OUT/"   # next to DriveClub.exe: it finds runtime\ and server\ from there
+cp docs/online/play/Allow-Firewall.bat docs/online/play/Allow-Firewall.ps1 docs/online/play/Allow-Firewall-Internet.bat docs/online/play/Remove-Firewall.bat docs/online/play/Remove-Firewall.ps1 "$OUT/"   # next to DriveClub.exe: it finds runtime\ and server\ from there
 cp docs/online/README.md docs/online/QUICKSTART.md docs/online/ONLINE-PLAY-3.md "$OUT/online/"
 
 # Every non-system DLL the game program loads, so nothing has to be installed.

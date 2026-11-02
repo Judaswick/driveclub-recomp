@@ -42,14 +42,19 @@ if (Test-Path (Join-Path $serverDir 'driveclubsrv.exe')) {
 }
 
 # Rules Windows made when asked "allow access?" for these programs let in every address and cannot be narrowed:
-# switch them off and allow each program with the same limits instead.
+# switch them off and allow each program with the same limits instead. Remove-Firewall.bat switches them on again:
+# their names are kept in firewall-switched-off.txt next to this script.
 $n = 0
 $programs = @{}
+$switchedOff = Join-Path $Root 'firewall-switched-off.txt'
 foreach ($f in Get-NetFirewallApplicationFilter | Where-Object { $_.Program -match '(driveclubsrv|DriveClubGame)\.exe$' }) {
     $r = $f | Get-NetFirewallRule
     if ($r.Direction -ne 'Inbound' -or $r.Action -ne 'Allow' -or $r.DisplayName -like 'DriveClub Online*') { continue }
-    Disable-NetFirewallRule -Name $r.Name
-    Write-Host "Switched off: $($r.DisplayName) ($($f.Program))"
+    if ($r.Enabled -eq 'True') {
+        Disable-NetFirewallRule -Name $r.Name
+        Add-Content -Path $switchedOff -Value $r.Name
+        Write-Host "Switched off: $($r.DisplayName) ($($f.Program))"
+    }
     $programs[$f.Program] = $true
 }
 foreach ($p in $programs.Keys) {
