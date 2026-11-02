@@ -55,6 +55,9 @@ A list server for everyone (for example one that is always on) goes into the lau
 
 Anyone who knows the address can join the server: give it only to friends.
 
+To undo `Allow-Firewall.bat` or `Allow-Firewall-Internet.bat`, double-click `Remove-Firewall.bat`: it removes the
+DriveClub rules and switches back on what they had switched off.
+
 ## In the game
 
 What a friend is doing appears at the top of the picture as a short message when it changes. The game's own friends
