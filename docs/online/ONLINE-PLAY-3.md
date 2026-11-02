@@ -36,6 +36,7 @@ the reworked force feedback, ...). The game files are not: you still need your o
 - **Reachable from the internet** (Host and Join): the router forwards the ports over UPnP, so friends can join over
   the internet without a VPN. Run `Allow-Firewall-Internet.bat` once. The internet address shows under Your IP address.
 - Fixed: Online play and the save profile went back to their first choice when the launcher was opened again.
+- **Remove-Firewall.bat** undoes Allow-Firewall.bat and Allow-Firewall-Internet.bat.
 
 ### Server (the `server` folder)
 
@@ -98,6 +99,8 @@ Tick what works, write down what does not (and attach `logs`).
 - [ ] With port sharing allowed in the router: Your IP address shows "Internet: x.x.x.x"; a friend joins with it;
       a race works.
 - [ ] Without port sharing: the launcher says it is not reachable and why.
+- [ ] Remove-Firewall.bat removes the DriveClub rules (Windows Firewall, inbound rules) and the game asks again for
+      access when a friend connects.
 
 **Clubs and saves**
 - [ ] After moving to this folder the host's clubs, fame and ghosts are still there.
