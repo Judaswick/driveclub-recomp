@@ -1,7 +1,7 @@
 # DriveClub online with friends (quick guide)
 
-Sessions, private lobbies and races together, clubs, statistics, fame and levels, leaderboards and the friends list with
-online status work. Public matchmaking and ghosts do not yet. Details: [README.md](README.md).
+Sessions, private lobbies and races together, clubs, statistics, fame and levels, leaderboards, ghosts in time trials
+and the friends list with online status work. Public matchmaking does not yet. Details: [README.md](README.md).
 
 ## What you need
 
@@ -31,6 +31,12 @@ online status work. Public matchmaking and ghosts do not yet. Details: [README.m
    devices, your home network, Hamachi or Radmin, the servers you joined lately) with their name, players and ping:
    choose one, then press Play. Its first entry searches again. Or type the host's IP address under
    **Host's IP address**.
+3. Join the other player's session from the friends list, or invite them to a private lobby, then start an event.
+   Promoting a leader and kicking a player work too.
+
+**Public server:** **ONLINE**, **Public server** joins the community server everyone can use, without a VPN or port
+sharing (it relays the race traffic). The extras of the online menu below (championships, bots, standings) need a
+server of your own (Host a session).
 
 A server can also list other servers: under **Host a session** the host types a **Server name** and, under **List my
 server on**, the address of a friend's server (several separated by commas); everyone who finds that friend's server
@@ -48,8 +54,8 @@ A list server for everyone (for example one that is always on) goes into the lau
    first start) to give to friends, who type it under **Host's IP address**.
 
 Anyone who knows the address can join the server: give it only to friends.
-3. Join the other player's session from the friends list, or invite them to a private lobby, then start an event.
-   Promoting a leader and kicking a player work too.
+
+## In the game
 
 What a friend is doing appears at the top of the picture as a short message when it changes. The game's own friends
 list always shows just "Playing DRIVECLUB".
@@ -57,6 +63,9 @@ list always shows just "Playing DRIVECLUB".
 Club names are typed with the PC keyboard (Enter confirms, Esc cancels).
 
 To change your name or the host's IP: change it in the launcher.
+
+Clubs, fame and ghosts are kept in one database per Windows user (`%LOCALAPPDATA%\driveclub-coop-server`), so they stay
+when the host runs the server from a new release folder.
 
 ## Online menu
 
