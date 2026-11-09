@@ -1,19 +1,19 @@
-# Online Play 4 (based on DriveClub Recomp 0.4.2): test build
+# Online Play 4 (based on DriveClub Recomp 0.4.2 hotfix): test build
 
 **Please read this first.** Everything below was built and checked by an AI (Claude) on one PC, with two copies of
 the game racing each other while the game's own AI drove both cars. No human has played it yet: not with a controller,
 not with a wheel, not between two real PCs, not over the internet. Expect bugs. The checklist at the end is what people
 need to try; please report what works and what does not, with the files from the `logs` folder.
 
-Everything of the official 0.4.2 is included (the modkit and the Mods page, Reduce texture repetition, the DLSS fix for
-cars, Xbox impulse triggers, and from 0.4.1 FSR 4, Reflex, DualSense adaptive triggers and haptics, button prompts, ...).
+Everything of the official 0.4.2 hotfix is included (Reduce texture repetition, the DLSS fix for cars, Xbox impulse
+triggers, the frame rate fix with upscaling, and from 0.4.1 FSR 4, Reflex, DualSense adaptive triggers and haptics, button prompts, ...).
 The game files are not: you still need your own copy of DriveClub.
 
 ## Changed since Online Play 3
 
 - Unlimited nitro: no purple bar drawn over the boost gauge any more (it shook against the game's own gauge). The
   gauge stays the game's own green.
-- Based on the official 0.4.2 instead of 0.4.1.
+- Based on the official 0.4.2 hotfix instead of 0.4.1 (the hotfix has no modkit; it fixes the frame rate with upscaling).
 
 ## What is new (compared with the official 0.4.2)
 
@@ -82,7 +82,6 @@ Tick what works, write down what does not (and attach `logs`).
 - [ ] L3+R3 opens and closes the online menu; d-pad, Cross and Circle work it; the game does not react while it is open.
 - [ ] Left Ctrl+V does the same on the keyboard.
 - [ ] Xbox controller and a steering wheel still work as in the official 0.4.2.
-- [ ] The Mods page of the launcher and a mod still work with this build.
 
 **Nitro**
 - [ ] On: X pushes the car, the gauge empties and refills, the boost sound plays (with a car that has no boost of its own).
