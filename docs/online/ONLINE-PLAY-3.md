@@ -1,20 +1,27 @@
-# Online Play 3 (based on DriveClub Recomp 0.4.1): test build
+# Online Play 4 (based on DriveClub Recomp 0.4.2): test build
 
 **Please read this first.** Everything below was built and checked by an AI (Claude) on one PC, with two copies of
 the game racing each other while the game's own AI drove both cars. No human has played it yet: not with a controller,
 not with a wheel, not between two real PCs, not over the internet. Expect bugs. The checklist at the end is what people
 need to try; please report what works and what does not, with the files from the `logs` folder.
 
-Everything of the official 0.4.1 is included (FSR 4, Reflex, DualSense adaptive triggers and haptics, button prompts,
-the reworked force feedback, ...). The game files are not: you still need your own copy of DriveClub.
+Everything of the official 0.4.2 is included (the modkit and the Mods page, Reduce texture repetition, the DLSS fix for
+cars, Xbox impulse triggers, and from 0.4.1 FSR 4, Reflex, DualSense adaptive triggers and haptics, button prompts, ...).
+The game files are not: you still need your own copy of DriveClub.
 
-## What is new (compared with the official 0.4.1)
+## Changed since Online Play 3
+
+- Unlimited nitro: no purple bar drawn over the boost gauge any more (it shook against the game's own gauge). The
+  gauge stays the game's own green.
+- Based on the official 0.4.2 instead of 0.4.1.
+
+## What is new (compared with the official 0.4.2)
 
 ### In the game (private lobby races on your own server)
 
 - **Online menu** with L3+R3 (keyboard: Left Ctrl+V): every extra below is switched there, no F keys.
 - **Nitro for every car**: Off, On or Unlimited. Hold X / Cross. On, the game's own boost gauge runs empty in about
-  4 s and fills again; Unlimited never runs out and the gauge turns purple.
+  4 s and fills again; Unlimited never runs out (the gauge stays full).
 - **Face-offs in lobby races** (on by default): the game's cornering, speed and drift face-offs against your friends'
   best, also when they drove another car.
 - **Objectives in lobby races** (on by default), drawn like the tour's: win (top 3 / top 5 in a bigger field), reach a
@@ -28,7 +35,7 @@ the reworked force feedback, ...). The game files are not: you still need your o
 
 ### In the launcher
 
-- **Online play: Public server**: the community server for everyone (0.4.1 had the code but no choice for it).
+- **Online play: Public server**: the community server for everyone (the official release has the code but no choice for it).
 - **Servers** (Join a session): servers found on their own (Tailscale devices, home network, Hamachi, Radmin, servers
   joined lately) with name, players and ping. Pick one instead of typing an IP.
 - **Server name** and **List my server on** (Host a session): your server's name in the list, and friends' servers
@@ -71,14 +78,15 @@ Tick what works, write down what does not (and attach `logs`).
 **Controller and keys**
 - [ ] A PS5 DualSense (USB and Bluetooth) is found and works in menus and while driving. With two controllers paired,
       only one switched on.
-- [ ] DualSense adaptive triggers and rumble (0.4.1 feature) still work with this build.
+- [ ] DualSense adaptive triggers and rumble (official feature) still work with this build.
 - [ ] L3+R3 opens and closes the online menu; d-pad, Cross and Circle work it; the game does not react while it is open.
 - [ ] Left Ctrl+V does the same on the keyboard.
-- [ ] Xbox controller and a steering wheel still work as in the official 0.4.1.
+- [ ] Xbox controller and a steering wheel still work as in the official 0.4.2.
+- [ ] The Mods page of the launcher and a mod still work with this build.
 
 **Nitro**
 - [ ] On: X pushes the car, the gauge empties and refills, the boost sound plays (with a car that has no boost of its own).
-- [ ] Unlimited: the gauge stays full and purple; it disappears in the pause menu and replays.
+- [ ] Unlimited: the gauge stays full, in the game's own green with nothing drawn over it; it disappears in the pause menu and replays.
 - [ ] Off: every car is as before; the Wombat, McLaren P1 and Jaguar C-X75 keep their own boost.
 
 **Private lobby (two real PCs)**

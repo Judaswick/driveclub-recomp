@@ -77,7 +77,7 @@ right, select with Cross, close with Circle.
 
 | Row | What it does |
 |---|---|
-| Nitro for every car | Off, On or Unlimited, from the next race: hold X / Cross. On, the game's boost gauge runs empty in about 4 s and fills again when you let go; Unlimited never runs out (the gauge turns purple) |
+| Nitro for every car | Off, On or Unlimited, from the next race: hold X / Cross. On, the game's boost gauge runs empty in about 4 s and fills again when you let go; Unlimited never runs out (the gauge stays full) |
 | Face-offs in lobby races | On (default) or Off, from the next race. On, private lobby races get the game's face-offs (cornering, average speed, drift ...) against your friends' best, even when they drove another car |
 | Objectives in lobby races | On (default) or Off, from the next race. Three goals on the left during a lobby race, the way the tour shows them: win (or finish in the top 3 / 5 in a bigger field), reach a speed that suits your car and the track (it rises with what you reached there before), lead the race for 15 s. A goal turns gold when it is met; after the race the panel shows how many you got |
 | Bots | AI bots in the private lobby, set by the host (the same in every game, bumps included) |
