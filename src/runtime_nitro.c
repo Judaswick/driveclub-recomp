@@ -6,8 +6,8 @@
  * those four cars and 0 for every other (the boost's parameters next to it, +0x5f0..+0x60c, are the same for all).
  * A car takes its definition when it is put on the track, so the bytes set here count from the next race on. Off,
  * every definition gets its own value back. The online menu picks off, on (the charge runs out and fills again) or
- * unlimited; the choice is kept in <user>/nitro.ini (BB_NITRO=0, 1 or 2 overrides it). The overlay draws the charge
- * (runtime_nitro_state): turquoise, purple when unlimited. Tested: a Ferrari 458 reaches 154 km/h in 5 s with X held
+ * unlimited; the choice is kept in <user>/nitro.ini (BB_NITRO=0, 1 or 2 overrides it). The game's own boost gauge
+ * shows the charge (runtime_nitro_charge_hook), in its own green; nothing is drawn over it. Tested: a Ferrari 458 reaches 154 km/h in 5 s with X held
  * against 95 km/h without (the game's own boost alone gave it nothing, see push()). */
 #include "runtime.h"
 
@@ -109,90 +109,14 @@ ABI float runtime_nitro_charge_hook(void *self) {
     return __atomic_load_n(&push_car, __ATOMIC_ACQUIRE) ? push_charge : own;
 }
 
-/* The gauge's colour. The boost gauge is drawn with the texture osd-speedo-kers-fill-texture (newui/art/osd.rpk),
- * block compressed (16-byte blocks, the colour endpoints in each block's first 4 bytes as RGB565), green in the
- * texture itself (tested: the colour table, the panel copies and osd-speedo-kers-fill do not change it). Unlimited, its endpoints are turned purple in guest memory,
- * from inside the process so the GPU side sees the write and uploads it again; back to green, the bytes found are
- * put back. The texture is found once, in a thread: 256-byte aligned, starting with the gauge's first block. */
-#ifdef _WIN32
-#define FILL_SIZE 0x2000 /* 244 x 12, as the GPU lays it out */
-void bbgpu_watch_texture(unsigned long long address); /* gpu/shadps4/video_core/texture_cache/texture_cache.cpp */
-unsigned long long bbgpu_watched_texture_age_us(void);
-static const uint8_t fill_first_block[16] = {0x80, 0xcd, 0xc5, 0x79, 0x7b, 0xef, 0xff, 0x83,
-                                             0x91, 0x82, 0xf7, 0xff, 0x03, 0xfc, 0x7f, 0x17};
-static uint8_t *fill_at, fill_green[FILL_SIZE];
-static volatile int32_t fill_state; /* 0 not searched, 1 searching, 2 found, 3 not found */
-static int fill_purple;
-
-static void *fill_search(void *unused) {
-    (void)unused;
-    MEMORY_BASIC_INFORMATION mbi;
-    for (uint8_t *a = (uint8_t *)0x4000000000ull; a < (uint8_t *)0x7000000000ull && VirtualQuery(a, &mbi, sizeof mbi);
-         a = (uint8_t *)mbi.BaseAddress + mbi.RegionSize) {
-        if (mbi.State != MEM_COMMIT || !(mbi.Protect & (PAGE_READWRITE | PAGE_READONLY | PAGE_EXECUTE_READWRITE)) ||
-            (mbi.Protect & PAGE_GUARD))
-            continue;
-        uint8_t *lo = (uint8_t *)mbi.BaseAddress, *hi = lo + mbi.RegionSize;
-        for (uint8_t *q = lo; q + FILL_SIZE <= hi; q += 0x100) {
-            if (memcmp(q, fill_first_block, 16)) continue;
-            memcpy(fill_green, q, FILL_SIZE);
-            fill_at = q;
-            bbgpu_watch_texture((unsigned long long)(uintptr_t)q); /* drawn = the HUD is on screen */
-            printf("Nitro: boost gauge texture at %p\n", (void *)q);
-            fflush(stdout);
-            __atomic_store_n(&fill_state, 2, __ATOMIC_RELEASE);
-            return NULL;
-        }
-    }
-    printf("Nitro: boost gauge texture not found\n");
-    fflush(stdout);
-    __atomic_store_n(&fill_state, 3, __ATOMIC_RELEASE);
-    return NULL;
-}
-
-/* The colour's brightness kept, its hue the game's own purple ("PurpleBestSplit" of colours.ctl, 225 90 255). */
-static uint16_t to_purple(uint16_t v) {
-    const int r = ((v >> 11) & 31) * 255 / 31, g = ((v >> 5) & 63) * 255 / 63, b = (v & 31) * 255 / 31;
-    const int l = r > g ? (r > b ? r : b) : (g > b ? g : b);
-    return (uint16_t)((((225 * l / 255) * 31 / 255) << 11) | (((90 * l / 255) * 63 / 255) << 5) | ((255 * l / 255) * 31 / 255));
-}
-
-/* Keeps the gauge purple while unlimited (called with every pad read). */
-static void gauge_colour(int unlimited) {
-    if (unlimited && !__atomic_load_n(&fill_state, __ATOMIC_ACQUIRE)) {
-        fill_state = 1;
-        pthread_t t;
-        if (pthread_create(&t, NULL, fill_search, NULL)) fill_state = 3; else pthread_detach(t);
-    }
-    if (__atomic_load_n(&fill_state, __ATOMIC_ACQUIRE) != 2 || unlimited == fill_purple) return;
-    fill_purple = unlimited;
-    for (int i = 0; i < FILL_SIZE; i += 16) {
-        uint16_t c[2];
-        memcpy(c, fill_green + i, 4);
-        if (unlimited) { c[0] = to_purple(c[0]); c[1] = to_purple(c[1]); }
-        memcpy(fill_at + i, c, 4);
-    }
-    printf("Nitro: boost gauge %s\n", unlimited ? "purple" : "green");
-    fflush(stdout);
-}
-#else
-static void gauge_colour(int unlimited) { (void)unlimited; }
-#endif
-
-/* For the overlay's bar: 0 when there is none to draw, else the charge (0..1), whether it fires and whether it is
+/* 0 when there is none to draw, else the charge (0..1), whether it fires and whether it is
  * unlimited. */
 int runtime_nitro_state(float *charge, int *firing, int *unlimited) {
     *charge = push_charge;
     *firing = __atomic_load_n(&push_firing, __ATOMIC_ACQUIRE);
     *unlimited = runtime_nitro_enabled() == 2;
-    /* on screen: the gauge's texture drawn lately (found once unlimited is on), else the game asking for the charge */
-#ifdef _WIN32
-    const int shown = __atomic_load_n(&fill_state, __ATOMIC_ACQUIRE) == 2
-                          ? bbgpu_watched_texture_age_us() < 150000
-                          : now_us() - __atomic_load_n(&gauge_asked_us, __ATOMIC_ACQUIRE) < 150000;
-#else
+    /* on screen: the game asked for the charge lately */
     const int shown = now_us() - __atomic_load_n(&gauge_asked_us, __ATOMIC_ACQUIRE) < 150000;
-#endif
     return runtime_nitro_enabled() && __atomic_load_n(&push_car, __ATOMIC_ACQUIRE) && shown;
 }
 
@@ -376,5 +300,4 @@ void runtime_nitro_frame(uint32_t buttons) {
     const int on = runtime_nitro_enabled();
     for (int i = 0; i < count; ++i) flag0[(size_t)i * VDEF_SIZE] = on ? 1 : original[i];
     if (on) push(buttons, begin, count);
-    gauge_colour(on == 2);
 }

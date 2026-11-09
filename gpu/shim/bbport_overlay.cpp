@@ -64,7 +64,6 @@ extern "C" int runtime_bots_count(void);
 extern "C" int runtime_bots_is_host(void);
 extern "C" int runtime_nitro_enabled(void); // src/runtime_nitro.c: 0 off, 1 on, 2 unlimited
 extern "C" void runtime_nitro_step(int dir);
-extern "C" int runtime_nitro_state(float* charge, int* firing, int* unlimited);
 extern "C" int runtime_faceoffs_enabled(void); // src/runtime_faceoffs.c
 extern "C" void runtime_faceoffs_toggle(void);
 extern "C" int runtime_objectives_enabled(void);
@@ -206,26 +205,6 @@ void OnlineMenu(float scale) {
     const ImVec2 footer_size = exit_body->CalcTextSizeA(15 * scale, FLT_MAX, 0, footer);
     draw->AddText(exit_body, 15 * scale, ImVec2(pos.x + (w - footer_size.x) * 0.5f, pos.y + h - 36 * scale),
                   IM_COL32(155, 155, 160, 255), footer);
-}
-
-// Unlimited nitro: the game's boost gauge (always full then) in the game's purple ("PurpleBestSplit", dimmed as
-// the green is), drawn exactly over its arc while the game shows it (src/runtime_nitro.c). The arc, measured at
-// 1080p: centre 187 px from the right and 172 px from the bottom, radius 119.6..130.6, from 137 to 242 degrees;
-// the HUD scales with the screen height.
-bool NitroArcShown() {
-    float charge;
-    int firing, unlimited;
-    return runtime_nitro_state(&charge, &firing, &unlimited) && unlimited;
-}
-
-void NitroArc() {
-    if (!NitroArcShown()) return;
-    ImGuiIO& io = ImGui::GetIO();
-    const float s = io.DisplaySize.y / 1080.0f;
-    const ImVec2 centre(io.DisplaySize.x - 187.0f * s, io.DisplaySize.y - 172.0f * s);
-    auto* draw = ImGui::GetBackgroundDrawList();
-    draw->PathArcTo(centre, 125.1f * s, 137.0f * 3.14159265f / 180.0f, 242.5f * 3.14159265f / 180.0f, 64);
-    draw->PathStroke(IM_COL32(160, 70, 190, 255), 0, 11.5f * s);
 }
 
 // Objectives in lobby races (src/runtime_objectives.c), drawn where and as the tour draws its objectives during a
@@ -1240,7 +1219,7 @@ bool HandleEvent(const SDL_Event& event) {
 
 bool Visible() {
     return initialized && (runtime_exit_captures() || menu_open || online_open || text_entry_active || note_active || trophy_active || BbSettings::Get().show_fps ||
-                           BbSettings::Get().show_pedals || picture_row >= 0 || NitroArcShown() ||
+                           BbSettings::Get().show_pedals || picture_row >= 0 ||
                            ObjectivesShown() || standings_active);
 }
 
@@ -1424,7 +1403,6 @@ void Render(vk::CommandBuffer cmdbuf, vk::ImageView view, vk::Extent2D extent) {
             trophy_active = !trophy_queue.empty();
         }
     }
-    NitroArc();
     ObjectivesPanel();
     if (standings_active) {
         StandingsPanel(scale);
